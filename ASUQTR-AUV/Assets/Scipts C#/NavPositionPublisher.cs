@@ -1,140 +1,243 @@
-﻿using System.Globalization;
+﻿using System;
+using System.Globalization;
 using UnityEngine;
 
+public enum PositionPublishMode
+{
+    Disabled,
+    FastDebugOdometry,
+    RealisticDepth
+}
+
 /// <summary>
-/// Publie la position NED relative du sous-marin vers le topic ROS configuré (ex: /nav_node/position).
+/// Publie les informations de position issues du Rigidbody.
 ///
-/// Rôle :
-///— Fournir une publication périodique de la position du Rigidbody en convention NED,
-///— Émuler le comportement de reset d'odom (origine capturée au démarrage, réinitialisable).
+/// FastDebugOdometry:
+///   Unity physics -> /odometry/filtered (nav_msgs/Odometry) -> control_node
 ///
-/// Conventions d'axes et intégration Unity → ROS (très important) :
-/// - Unity (repère monde) :  X = droite, Y = haut, Z = avant
-/// - Convention NED utilisée par les nodes ROS de ce projet :
-///     X_ned (north) = Unity.z  (forward)
-///     Y_ned (east)  = Unity.x  (right)
-///     Z_ned (down)  = -Unity.y (down)
-/// - Cette conversion doit rester cohérente avec les autres publishers (IMU, target, etc.).
-///   Toute modification de cette convention DOIT être faite en un point central pour éviter
-///   des incohérences côté contrôleur (LQR).
+/// RealisticDepth:
+///   Unity physics -> /depth (nav_msgs/Odometry) -> robot_localization
 ///
-/// Origine relative (comportement) :
-/// - À l'appel de Start() l'origine NED est capturée (position initiale du sub).
-/// - Les positions publiées sont relatées à cette origine (pos - origin), comme le driver VectorNav
-///   qui expose initial_position / service reset_odom.
-/// - Méthode publique ResetOrigin() permet de recapturer l'origine à tout moment.
-///
-/// Message publié (format rosbridge) :
-/// - JSON équivalent à geometry_msgs/Point embarqué sous "point", header.frame_id = "map".
-/// - Fréquence contrôlée par publishInterval (en secondes).
-///
-/// Remarques :
-/// - Ce composant n'altère pas la physique : il lit simplement rb.position.
-/// - Assurez-vous que le Rigidbody référencé est bien celui du sous-marin (ou du rigidbody racine).
+/// Conversion frame:
+/// - Unity: X=right, Y=up, Z=forward.
+/// - ROS Odometry standard: world ENU, body FLU.
+/// - control_node.py reconvertit ensuite ENU/FLU vers son etat interne NED/FRD.
 /// </summary>
 public class NavPositionPublisher : MonoBehaviour
 {
-    [Header("Références")]
-    [Tooltip("Rigidbody du sous-marin (position lue pour la publication).")]
+    [Header("References")]
+    [Tooltip("Rigidbody du sous-marin dont l'etat est publie vers ROS2.")]
     public Rigidbody rb;
 
-    [Header("ROS")]
-    [Tooltip("Topic rosbridge qui recevra la position (geometry_msgs/Point style).")]
-    public string topic = "/nav_node/position";
+    [Header("Mode")]
+    public PositionPublishMode publishMode = PositionPublishMode.FastDebugOdometry;
 
-    [Tooltip("Intervalle entre deux publications (s). Par exemple 0.1 = 10 Hz.")]
-    public float publishInterval = 0.1f;
+    [Tooltip("Frequence de publication en Hz.")]
+    public float publishRateHz = 30.0f;
 
-    // Origine NED capturée au démarrage (équivalent à initial_position / reset_odom)
-    private Vector3 originNED;
-    private float timer = 0f;
+    [Header("Frames")]
+    public string odomFrameId = "odom";
+    public string baseFrameId = "base_link";
+    public string depthSensorFrameId = "bar30_link";
+
+    private Vector3 originUnity;
+    private float timer = 0.0f;
+    private bool advertised = false;
 
     void Awake()
     {
-        // Récupération automatique du Rigidbody si non assigné dans l'Inspector
-        if (!rb) rb = GetComponent<Rigidbody>();
+        if (!rb)
+            rb = GetComponent<Rigidbody>();
     }
 
     void Start()
     {
         if (rb == null)
         {
-            Debug.LogError("[NavPositionPublisher] Rigidbody manquant !");
+            Debug.LogError("[NavPositionPublisher] Rigidbody manquant.");
             return;
         }
 
-        // Capture l'origine initiale (position de référence)
         CaptureOrigin();
     }
 
-    /// <summary>
-    /// Réinitialise l'origine NED à la position courante du Rigidbody.
-    /// Usage : équivalent au service reset_odom du driver VectorNav physique.
-    /// </summary>
     public void ResetOrigin()
     {
         CaptureOrigin();
-        Debug.Log("[NavPositionPublisher] Origine NED réinitialisée.");
-    }
-
-    /// <summary>
-    /// Conversion centralisée Unity position -> NED position.
-    /// Garder cette fonction comme unique point de vérité pour la conversion d'axes.
-    /// Mapping : x_ned = Unity.z, y_ned = Unity.x, z_ned = -Unity.y
-    /// </summary>
-    static Vector3 UnityPositionToNED(Vector3 unityPos)
-    {
-        return new Vector3(unityPos.z, unityPos.x, -unityPos.y);
-    }
-
-    void CaptureOrigin()
-    {
-        Vector3 pos = rb.position;
-        originNED = UnityPositionToNED(pos);
-        Debug.Log($"[NavPositionPublisher] Origine NED capturée : {originNED}");
+        Debug.Log("[NavPositionPublisher] Origin reset.");
     }
 
     void Update()
     {
-        // Vérifications : socket ROS active et Rigidbody présent
+        if (publishMode == PositionPublishMode.Disabled)
+            return;
+
         if (SimpleRosSocket.Instance == null || !SimpleRosSocket.Instance.IsConnected || rb == null)
             return;
 
-        // Contrôle de fréquence
-        timer += Time.deltaTime;
-        if (timer < publishInterval) return;
-        timer = 0f;
+        AdvertiseIfNeeded();
 
-        PublishPosition();
+        timer += Time.deltaTime;
+        float period = 1.0f / Mathf.Max(1.0f, publishRateHz);
+        if (timer < period)
+            return;
+
+        timer = 0.0f;
+
+        if (publishMode == PositionPublishMode.FastDebugOdometry)
+            PublishFastDebugOdometry();
+        else if (publishMode == PositionPublishMode.RealisticDepth)
+            PublishDepthOdometry();
     }
 
-    void PublishPosition()
+    void CaptureOrigin()
     {
-        Vector3 pos = rb.position;
+        originUnity = rb.position;
+    }
 
-        // Conversion Unity -> NED via l'utilitaire centralisé
-        Vector3 ned = UnityPositionToNED(pos);
-        float x_ned = ned.x;
-        float y_ned = ned.y;
-        float z_ned = ned.z;
+    void AdvertiseIfNeeded()
+    {
+        if (advertised)
+            return;
 
-        // Position relative à l'origine (pos - origin) comme le driver VectorNav
-        float dx = x_ned - originNED.x;
-        float dy = y_ned - originNED.y;
-        float dz = z_ned - originNED.z;
+        if (publishMode == PositionPublishMode.FastDebugOdometry)
+            SimpleRosSocket.Instance.Advertise(SimpleRosSocket.OdometryTopic, SimpleRosSocket.OdometryType);
+        else if (publishMode == PositionPublishMode.RealisticDepth)
+            SimpleRosSocket.Instance.Advertise(SimpleRosSocket.DepthTopic, SimpleRosSocket.DepthType);
 
-        // Construction JSON rosbridge (geometry_msgs/Point style dans "point")
+        advertised = true;
+    }
+
+    static string F(float value)
+    {
+        return value.ToString("F6", CultureInfo.InvariantCulture);
+    }
+
+    static string D(double value)
+    {
+        return value.ToString("F6", CultureInfo.InvariantCulture);
+    }
+
+    static string Covariance36(double diagonal)
+    {
+        string d = D(diagonal);
+        string z = "0.000000";
+        string[] values = new string[36];
+
+        for (int i = 0; i < values.Length; i++)
+            values[i] = z;
+
+        values[0] = d;
+        values[7] = d;
+        values[14] = d;
+        values[21] = d;
+        values[28] = d;
+        values[35] = d;
+
+        return "[" + string.Join(",", values) + "]";
+    }
+
+    static void RosStamp(out int sec, out uint nanosec)
+    {
+        double now = Time.realtimeSinceStartupAsDouble;
+        sec = (int)Math.Floor(now);
+        nanosec = (uint)((now - sec) * 1e9);
+    }
+
+    void PublishFastDebugOdometry()
+    {
+        Vector3 relativeUnityPosition = rb.position - originUnity;
+        Vector3 rosPosition = FrameConversions.UnityWorldToRosEnu(relativeUnityPosition);
+        Quaternion rosOrientation = FrameConversions.UnityRotationToRosEnuFlu(transform.rotation);
+
+        Vector3 bodyLinearUnity = transform.InverseTransformDirection(rb.linearVelocity);
+        Vector3 rosLinear = FrameConversions.UnityBodyToRosFlu(bodyLinearUnity);
+
+        Vector3 bodyAngularUnity = transform.InverseTransformDirection(rb.angularVelocity);
+        Vector3 rosAngular = FrameConversions.UnityBodyToRosFlu(bodyAngularUnity);
+
+        RosStamp(out int sec, out uint nanosec);
+
+        string poseCovariance = Covariance36(0.0001);
+        string twistCovariance = Covariance36(0.001);
+
         string msg =
             "{\"op\":\"publish\"," +
-             "\"topic\":\"" + topic + "\"," +
+             "\"topic\":\"" + SimpleRosSocket.OdometryTopic + "\"," +
              "\"msg\":{" +
                "\"header\":{" +
-                 "\"frame_id\":\"map\"" +
+                 "\"stamp\":{\"sec\":" + sec + ",\"nanosec\":" + nanosec + "}," +
+                 "\"frame_id\":\"" + odomFrameId + "\"" +
                "}," +
-               "\"point\":{" +
-                 "\"x\":" + dx.ToString("F6", CultureInfo.InvariantCulture) + "," +
-                 "\"y\":" + dy.ToString("F6", CultureInfo.InvariantCulture) + "," +
-                 "\"z\":" + dz.ToString("F6", CultureInfo.InvariantCulture) +
+               "\"child_frame_id\":\"" + baseFrameId + "\"," +
+               "\"pose\":{" +
+                 "\"pose\":{" +
+                   "\"position\":{" +
+                     "\"x\":" + F(rosPosition.x) + "," +
+                     "\"y\":" + F(rosPosition.y) + "," +
+                     "\"z\":" + F(rosPosition.z) +
+                   "}," +
+                   "\"orientation\":{" +
+                     "\"x\":" + F(rosOrientation.x) + "," +
+                     "\"y\":" + F(rosOrientation.y) + "," +
+                     "\"z\":" + F(rosOrientation.z) + "," +
+                     "\"w\":" + F(rosOrientation.w) +
+                   "}" +
+                 "}," +
+                 "\"covariance\":" + poseCovariance +
+               "}," +
+               "\"twist\":{" +
+                 "\"twist\":{" +
+                   "\"linear\":{" +
+                     "\"x\":" + F(rosLinear.x) + "," +
+                     "\"y\":" + F(rosLinear.y) + "," +
+                     "\"z\":" + F(rosLinear.z) +
+                   "}," +
+                   "\"angular\":{" +
+                     "\"x\":" + F(rosAngular.x) + "," +
+                     "\"y\":" + F(rosAngular.y) + "," +
+                     "\"z\":" + F(rosAngular.z) +
+                   "}" +
+                 "}," +
+                 "\"covariance\":" + twistCovariance +
+               "}" +
+             "}}";
+
+        SimpleRosSocket.Instance.Send(msg);
+    }
+
+    void PublishDepthOdometry()
+    {
+        Vector3 relativeUnityPosition = rb.position - originUnity;
+        Vector3 nedPosition = FrameConversions.UnityWorldToNed(relativeUnityPosition);
+
+        // The physical depth node publishes nav_msgs/Odometry on /depth with
+        // pose.pose.position.z = -depth. ROS Z is up; marine depth is positive down.
+        float rosZ = -nedPosition.z;
+        RosStamp(out int sec, out uint nanosec);
+
+        string msg =
+            "{\"op\":\"publish\"," +
+             "\"topic\":\"" + SimpleRosSocket.DepthTopic + "\"," +
+             "\"msg\":{" +
+               "\"header\":{" +
+                 "\"stamp\":{\"sec\":" + sec + ",\"nanosec\":" + nanosec + "}," +
+                 "\"frame_id\":\"" + odomFrameId + "\"" +
+               "}," +
+               "\"child_frame_id\":\"" + depthSensorFrameId + "\"," +
+               "\"pose\":{" +
+                 "\"pose\":{" +
+                   "\"position\":{\"x\":0.000000,\"y\":0.000000,\"z\":" + F(rosZ) + "}," +
+                   "\"orientation\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000,\"w\":1.000000}" +
+                 "}," +
+                 "\"covariance\":" + Covariance36(0.0001) +
+               "}," +
+               "\"twist\":{" +
+                 "\"twist\":{" +
+                   "\"linear\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000}," +
+                   "\"angular\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000}" +
+                 "}," +
+                 "\"covariance\":" + Covariance36(0.0) +
                "}" +
              "}}";
 

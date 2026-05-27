@@ -11,7 +11,7 @@
 /// Règles d'intégration Unity → ROS :
 /// - Ce script NE publie PAS vers ROS. Il écrit directement dans `receiver.motorThrottles[]`
 ///   pour simuler des commandes reçues. Pour un usage réel, les commandes doivent provenir
-///   du topic ROS "/actuator/motors" et être traitées par `ThrusterReceiver`.
+///   du topic ROS2 "/thruster_cmd" et être traitées par `ThrusterReceiver`.
 /// - `ThrusterReceiver.motorThrottles` doit contenir 8 éléments (0..7). Ici on modifie
 ///   l'index 0 à titre d'exemple. Adaptez le mapping aux indices de vos thrusters.
 /// - Les consignes attendues sont normalisées dans l'intervalle [-1, 1] (1 = pleine poussée avant,

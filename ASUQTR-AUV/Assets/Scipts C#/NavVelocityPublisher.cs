@@ -1,96 +1,114 @@
-﻿using System.Globalization;
+﻿using System;
+using System.Globalization;
 using UnityEngine;
 
-
 /// <summary>
-/// Publie la vitesse linéaire du sous-marin exprimée dans le repère corps VectorNav (body frame)
-/// vers le topic ROS `/nav_node/velocity` (format rosbridge JSON).
+/// Publie la vitesse DVL simulee pour le mode RealisticSensors.
 ///
-/// But :
-/// - Fournir au contrôleur ROS (LQR / nav_node) la vitesse linéaire du véhicule dans son repère corps
-///   (u, v, w) en m/s, cohérente avec la convention NED utilisée pour IMU et position.
+/// Topic ROS2:
+///   /dvl/velocities
 ///
-/// Conventions d'axes (important, centraliser si possible) :
-/// - Repère Unity (body) : X = droite (right), Y = haut (up), Z = avant (forward)
-/// - Repère VectorNav / NED body (marine) utilisé côté ROS :
-///     x_vn = forward (north)  = Unity Z
-///     y_vn = right   (east)   = Unity X
-///     z_vn = down    (down)   = -Unity Y
+/// Type ROS2:
+///   geometry_msgs/TwistWithCovarianceStamped
 ///
-/// Mapping implémenté ici (body Unity → body VectorNav) :
-///   u = vBodyUnity.z   // composante avant (forward)
-///   v = vBodyUnity.x   // composante droite (right)
-///   w = -vBodyUnity.y  // composante bas (down = -up)
-///
-/// Remarques d'intégration Unity → ROS :
-/// - Cette conversion doit être cohérente avec NavImuPublisher et NavPositionPublisher.
-///   Idéalement, centraliser la logique de conversion Unity→NED dans un utilitaire partagé
-///   pour éviter des inversions/signes incohérents qui cassent la boucle de contrôle.
-/// - Le message publié ici contient un header (seq, stamp) et un champ `point` (x,y,z)
-///   correspondant à (u,v,w) en m/s ; `frame_id` = "base_link" (repère corps du sous-marin).
-/// - Fréquence de publication configurable via `publishRateHz`.
-/// - Ce publisher n'envoie que la vitesse linéaire ; les vitesses angulaires sont fournies
-///   par l'IMU (/vectornav/IMU) si nécessaire.
-///
-/// Unités : m/s pour la vitesse linéaire.
+/// Frame output:
+/// - ROS body FLU: X=forward, Y=left, Z=up.
+/// - Unity body: X=right, Y=up, Z=forward.
 /// </summary>
 public class NavVelocityPublisher : MonoBehaviour
 {
-    [Tooltip("Fréquence de publication en Hz")]
+    [Tooltip("Activer en mode RealisticSensors. Desactiver en mode FastDebugOdometry.")]
+    public bool publishRealisticSensorTopic = false;
+
+    [Tooltip("Frequence de publication DVL en Hz.")]
     public float publishRateHz = 30f;
+
+    [Tooltip("Frame ROS du DVL, coherent avec l'URDF.")]
+    public string frameId = "dvl_link";
 
     private Rigidbody rb;
     private float timer = 0f;
-    private uint seq = 0;
+    private bool advertised = false;
 
     void Start()
     {
         rb = GetComponent<Rigidbody>();
 
         if (rb == null)
-            Debug.LogError("[NavVelocityPublisher] Rigidbody manquant !");
+            Debug.LogError("[NavVelocityPublisher] Rigidbody manquant.");
     }
 
     void FixedUpdate()
     {
+        if (!publishRealisticSensorTopic)
+            return;
+
         if (SimpleRosSocket.Instance == null || !SimpleRosSocket.Instance.IsConnected || rb == null)
             return;
 
-        timer += Time.fixedDeltaTime;
-        if (timer < 1f / publishRateHz) return;
-        timer = 0f;
+        if (!advertised)
+        {
+            SimpleRosSocket.Instance.Advertise(SimpleRosSocket.DvlVelocityTopic, SimpleRosSocket.DvlVelocityType);
+            advertised = true;
+        }
 
+        timer += Time.fixedDeltaTime;
+        if (timer < 1f / Mathf.Max(1f, publishRateHz))
+            return;
+
+        timer = 0f;
         PublishVelocity();
+    }
+
+    static string F(float value)
+    {
+        return value.ToString("F6", CultureInfo.InvariantCulture);
+    }
+
+    static void RosStamp(out int sec, out uint nanosec)
+    {
+        double now = Time.realtimeSinceStartupAsDouble;
+        sec = (int)Math.Floor(now);
+        nanosec = (uint)((now - sec) * 1e9);
+    }
+
+    static string TwistCovariance36()
+    {
+        return "[" +
+            "0.0004,0,0,0,0,0," +
+            "0,0.0004,0,0,0,0," +
+            "0,0,0.0004,0,0,0," +
+            "0,0,0,999999,0,0," +
+            "0,0,0,0,999999,0," +
+            "0,0,0,0,0,999999" +
+        "]";
     }
 
     void PublishVelocity()
     {
-        // Vitesse linéaire : rb.linearVelocity (monde) -> exprimée dans le repère corps Unity
-        Vector3 vBodyUnity = transform.InverseTransformDirection(rb.linearVelocity);
+        Vector3 bodyVelocityUnity = transform.InverseTransformDirection(rb.linearVelocity);
+        Vector3 rosLinear = FrameConversions.UnityBodyToRosFlu(bodyVelocityUnity);
 
-        // Body Unity -> body VectorNav (NED marine body) : permutation + signe
-        float u = vBodyUnity.z;    // avant / forward
-        float v = vBodyUnity.x;    // droite / right
-        float w = -vBodyUnity.y;   // bas / down
+        RosStamp(out int sec, out uint nanosec);
 
-        double now = Time.realtimeSinceStartupAsDouble;
-        uint secs = (uint)now;
-        uint nsecs = (uint)((now - secs) * 1e9);
-
-        // Message rosbridge JSON (équivalent minimal à un twist.linear ou geometry_msgs/Point)
         string msg =
             "{\"op\":\"publish\"," +
-             "\"topic\":\"/nav_node/velocity\"," +
+             "\"topic\":\"" + SimpleRosSocket.DvlVelocityTopic + "\"," +
              "\"msg\":{" +
                "\"header\":{" +
-                 "\"seq\":" + seq++ + "," +
-                 "\"stamp\":{\"secs\":" + secs + ",\"nsecs\":" + nsecs + "}," +
-                 "\"frame_id\":\"base_link\"" +   // repère corps du sous-marin
+                 "\"stamp\":{\"sec\":" + sec + ",\"nanosec\":" + nanosec + "}," +
+                 "\"frame_id\":\"" + frameId + "\"" +
                "}," +
-               "\"point\":{" +
-                 "\"x\":" + u.ToString("F6", CultureInfo.InvariantCulture) + "," +
-                 "\"y\":" + v.ToString("F6", CultureInfo.InvariantCulture) + "," +
-                 "\"z\":" + w.ToString("F6", CultureInfo.InvariantCulture) +
+               "\"twist\":{" +
+                 "\"twist\":{" +
+                   "\"linear\":{" +
+                     "\"x\":" + F(rosLinear.x) + "," +
+                     "\"y\":" + F(rosLinear.y) + "," +
+                     "\"z\":" + F(rosLinear.z) +
+                   "}," +
+                   "\"angular\":{\"x\":0.000000,\"y\":0.000000,\"z\":0.000000}" +
+                 "}," +
+                 "\"covariance\":" + TwistCovariance36() +
                "}" +
              "}}";
 

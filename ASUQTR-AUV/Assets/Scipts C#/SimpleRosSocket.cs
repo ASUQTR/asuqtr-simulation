@@ -11,7 +11,8 @@ using System.Text;
 ///
 /// Responsabilités :
 /// — Gérer la connexion WebSocket vers rosbridge (ws://host:port).
-/// — S'abonner à un topic d'exemple (/actuator/motors) après connexion.
+/// — S'abonner aux commandes de thrusters ROS2 (/thruster_cmd) après connexion.
+/// — Fournir Advertise/Subscribe/Send aux publishers Unity.
 /// — Diffuser chaque message JSON entrant via l'événement public OnRawMessage (Action<string>).
 /// — Fournir une méthode Send(string json) pour envoyer des messages vers rosbridge.
 ///
@@ -19,8 +20,8 @@ using System.Text;
 /// - Le format attendu est rosbridge JSON. Exemple d'abonnement envoyé :
 ///   {
 ///     "op":"subscribe",
-///     "topic":"/actuator/motors",
-///     "type":"asuqtr_actuator_node/ActuatorThrottle"
+///     "topic":"/thruster_cmd",
+///     "type":"sub_interfaces/msg/ThrusterCommand"
 ///   }
 /// - Les récepteurs (ex: ThrusterReceiver) doivent écouter OnRawMessage et parser
 ///   (préférer une désérialisation structurée avec JsonUtility / Newtonsoft plutôt que du parsing texte).
@@ -52,6 +53,22 @@ public class SimpleRosSocket : MonoBehaviour
     [Tooltip("URL du rosbridge (ex: ws://127.0.0.1:9090)")]
     public string rosbridgeUrl = "ws://127.0.0.1:9090";
 
+    [Header("Debug")]
+    [Tooltip("Active les logs de connexion, abonnement et messages ROS recus.")]
+    public bool debugLogs = false;
+
+    public const string ThrusterCommandTopic = "/thruster_cmd";
+    public const string ThrusterCommandType = "sub_interfaces/msg/ThrusterCommand";
+    public const string OdometryTopic = "/odometry/filtered";
+    public const string OdometryType = "nav_msgs/Odometry";
+
+    public const string ImuTopic = "/vectornav/imu";
+    public const string ImuType = "sensor_msgs/Imu";
+    public const string DvlVelocityTopic = "/dvl/velocities";
+    public const string DvlVelocityType = "geometry_msgs/TwistWithCovarianceStamped";
+    public const string DepthTopic = "/depth";
+    public const string DepthType = "nav_msgs/Odometry";
+
     private WebSocket ws;
 
     /// <summary>
@@ -75,7 +92,8 @@ public class SimpleRosSocket : MonoBehaviour
         Instance = this;
         DontDestroyOnLoad(gameObject);
 
-        Debug.Log($"[ROS] Connecting to {rosbridgeUrl}");
+        if (debugLogs)
+            Debug.Log($"[ROS] Connecting to {rosbridgeUrl}");
 
         try
         {
@@ -84,9 +102,9 @@ public class SimpleRosSocket : MonoBehaviour
             // Evénements WebSocket
             ws.OnOpen += () =>
             {
-                Debug.Log("[ROS] Connected successfully");
-                // Exemple : s'abonner au topic des moteurs après connexion
-                SubscribeToMotors();
+                if (debugLogs)
+                    Debug.Log("[ROS] Connected successfully");
+                SubscribeToThrusterCommands();
             };
 
             // OnMessage reçoit un tableau d'octets ; on le convertit en chaîne UTF8 et on
@@ -94,6 +112,8 @@ public class SimpleRosSocket : MonoBehaviour
             ws.OnMessage += (bytes) =>
             {
                 string msg = Encoding.UTF8.GetString(bytes);
+                if (debugLogs && msg.Contains(ThrusterCommandTopic))
+                    Debug.Log($"[ROS] Received {ThrusterCommandTopic}: {msg}");
                 OnRawMessage?.Invoke(msg);
             };
 
@@ -104,7 +124,8 @@ public class SimpleRosSocket : MonoBehaviour
 
             ws.OnClose += (e) =>
             {
-                Debug.Log($"[ROS] Closed: {e}");
+                if (debugLogs)
+                    Debug.Log($"[ROS] Closed: {e}");
             };
 
             await ws.Connect();
@@ -125,19 +146,48 @@ public class SimpleRosSocket : MonoBehaviour
     }
 
     /// <summary>
-    /// Exemple d'abonnement : envoie un message rosbridge "subscribe" pour /actuator/motors.
-    /// Adaptez topic/type selon votre configuration ROS.
+    /// S'abonne aux efforts de thrusters calculés par la control node ROS2.
     /// </summary>
-    void SubscribeToMotors()
+    void SubscribeToThrusterCommands()
     {
-        string sub = @"{
-            ""op"": ""subscribe"",
-            ""topic"": ""/actuator/motors"",
-            ""type"": ""asuqtr_actuator_node/ActuatorThrottle""
-        }";
+        string sub =
+            "{\"op\":\"subscribe\"," +
+             "\"topic\":\"" + ThrusterCommandTopic + "\"," +
+             "\"type\":\"" + ThrusterCommandType + "\"}";
 
         ws.SendText(sub);
-        Debug.Log("[ROS] Subscribed to /actuator/motors");
+        if (debugLogs)
+            Debug.Log($"[ROS] Subscribed to {ThrusterCommandTopic} as {ThrusterCommandType}");
+    }
+
+    public void Advertise(string topic, string type)
+    {
+        if (!IsConnected)
+            return;
+
+        string advertise =
+            "{\"op\":\"advertise\"," +
+             "\"topic\":\"" + topic + "\"," +
+             "\"type\":\"" + type + "\"}";
+
+        ws.SendText(advertise);
+        if (debugLogs)
+            Debug.Log($"[ROS] Advertised {topic} as {type}");
+    }
+
+    public void Subscribe(string topic, string type)
+    {
+        if (!IsConnected)
+            return;
+
+        string sub =
+            "{\"op\":\"subscribe\"," +
+             "\"topic\":\"" + topic + "\"," +
+             "\"type\":\"" + type + "\"}";
+
+        ws.SendText(sub);
+        if (debugLogs)
+            Debug.Log($"[ROS] Subscribed to {topic}");
     }
 
     /// <summary>

@@ -11,7 +11,7 @@
 ///
 /// RÔLE ET RESPONSABILITÉS :
 /// - Lire les consignes normalisées de chaque moteur (array `motorThrottles` fourni par
-///   `ThrusterReceiver` qui écoute le topic ROS "/actuator/motors").
+///   `ThrusterReceiver` qui écoute le topic ROS2 "/thruster_cmd").
 /// - Convertir chaque consigne en poussée cible (Newton) via `ThrusterModel`.
 /// - Simuler la dynamique moteur (lag / constante de temps) avec un modèle du 1er ordre
 ///   pour rendre la réponse plus réaliste (la poussée ne change pas instantanément).
@@ -67,6 +67,13 @@ public class ThrusterApplier : MonoBehaviour
     [Tooltip("Constante de temps tau du moteur en secondes. Plus petit = réponse plus rapide.")]
     public float motorTimeConstant = 0.07f;
 
+    [Header("Debug")]
+    [Tooltip("Active les logs de throttle et force appliquee par thruster.")]
+    public bool debugLogs = false;
+
+    [Tooltip("Intervalle minimal entre deux groupes de logs de forces, en secondes.")]
+    public float debugLogInterval = 0.5f;
+
     // Référence au composant qui reçoit les commandes (populé côté ROS)
     private ThrusterReceiver receiver;
 
@@ -74,13 +81,32 @@ public class ThrusterApplier : MonoBehaviour
     // Taille initiale fixe : adaptée à 8 thrusters par défaut. Si votre configuration diffère,
     // vous pouvez gérer dynamiquement la taille sur Awake/Start.
     private float[] currentForcesN;
+    private float nextDebugLogTime;
 
     void Awake()
     {
         receiver = GetComponent<ThrusterReceiver>();
+        if (submarine == null)
+            submarine = GetComponent<Rigidbody>();
 
-        // Allocation initiale (8 par défaut, garder compatibilité avec le driver ROS attendu).
-        currentForcesN = new float[8];
+        int forceMemorySize = thrusters != null ? Mathf.Max(8, thrusters.Length) : 8;
+        currentForcesN = new float[forceMemorySize];
+
+        if (submarine == null)
+        {
+            Debug.LogError("[ThrusterApplier] Rigidbody submarine is not assigned.");
+        }
+        else
+        {
+            if (submarine.isKinematic)
+                Debug.LogWarning("[ThrusterApplier] Rigidbody is kinematic; thruster forces will not move the submarine.");
+
+            if (submarine.constraints != RigidbodyConstraints.None)
+                Debug.LogWarning("[ThrusterApplier] Rigidbody constraints are enabled: " + submarine.constraints);
+
+            if (debugLogs)
+                Debug.Log("[ThrusterApplier] Applying forces to Rigidbody on " + submarine.gameObject.name);
+        }
     }
 
     void FixedUpdate()
@@ -89,13 +115,25 @@ public class ThrusterApplier : MonoBehaviour
         if (receiver == null || submarine == null || thrusters == null)
             return;
 
-        // On ne parcourt que le nombre minimal d'éléments disponibles pour éviter les OOB
-        int count = Mathf.Min(thrusters.Length, receiver.motorThrottles.Length);
+        bool shouldDebugLog = debugLogs && Time.time >= nextDebugLogTime;
+        if (shouldDebugLog)
+            nextDebugLogTime = Time.time + Mathf.Max(0.02f, debugLogInterval);
 
-        for (int i = 0; i < count; i++)
+        for (int i = 0; i < thrusters.Length; i++)
         {
+            ThrusterPoint t = thrusters[i];
+            if (t == null)
+                continue;
+
+            int commandIndex = t.thrusterIndex;
+            if (commandIndex < 0 || commandIndex >= receiver.motorThrottles.Length)
+            {
+                Debug.LogWarning("[ThrusterApplier] Thruster " + i + " has invalid thrusterIndex " + commandIndex + ".");
+                continue;
+            }
+
             // 1. Lecture de la commande moteur normalisée provenant du receiver (ROS ou test local)
-            float cmd = receiver.motorThrottles[i];
+            float cmd = receiver.motorThrottles[commandIndex];
 
             // 2. Conversion commande -> poussée cible (kgf -> N) via le modèle empirique
             float targetForceN = ThrusterModel.CommandToForceN(cmd);
@@ -127,9 +165,6 @@ public class ThrusterApplier : MonoBehaviour
             if (Mathf.Abs(appliedForceN) < 0.001f)
                 continue;
 
-            // Récupération du ThrusterPoint configuré (position & direction en monde)
-            ThrusterPoint t = thrusters[i];
-
             // 4. Calcul de la force vectorielle et application au Rigidbody à la position correcte.
             //    ThrustDirection est supposée être un vecteur unitaire en coordonnées MONDE.
             Vector3 force = t.ThrustDirection * appliedForceN;
@@ -141,6 +176,13 @@ public class ThrusterApplier : MonoBehaviour
                 t.ThrustPosition,
                 ForceMode.Force
             );
+
+            if (shouldDebugLog)
+                Debug.Log("[ThrusterApplier] thruster[" + commandIndex + "] " +
+                          t.gameObject.name + " throttle=" + cmd.ToString("F3") +
+                          " targetForce=" + targetForceN.ToString("F3") + " N" +
+                          " appliedForce=" + appliedForceN.ToString("F3") + " N" +
+                          " forceVector=" + force);
         }
     }
 }
