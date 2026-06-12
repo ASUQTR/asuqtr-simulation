@@ -36,7 +36,7 @@ public class Buoyancy : MonoBehaviour
 
     [Header("Geometry")]
     [Tooltip("Approximate displaced volume in m^3.")]
-    [SerializeField] private float displacedVolume = 0.0239f;
+    [SerializeField] private float displacedVolume = 0.024f;
 
     [Tooltip("Water density in kg/m^3. Fresh water ~1000, pool water ~997-1000.")]
     [SerializeField] private float waterDensity = 1000f;
@@ -44,12 +44,12 @@ public class Buoyancy : MonoBehaviour
     [Tooltip("Center of gravity in local coordinates (m). Usually same as Rigidbody COM.")]
     [SerializeField] private Vector3 localCenterOfGravity = Vector3.zero;
 
-    [Tooltip("Center of buoyancy in local coordinates (m). Usually slightly above CG for passive stability.")]
+    [Tooltip("Center of buoyancy in local coordinates (m). Slightly above CG for passive roll/pitch stability.")]
     [SerializeField] private Vector3 localCenterOfBuoyancy = new Vector3(0f, 0.02f, 0f);
 
     [Header("Buoyancy Tuning")]
     [Tooltip("Automatically choose buoyancyScale from Rigidbody mass and displacedVolume at startup.")]
-    [SerializeField] private bool autoNeutralBuoyancy = true;
+    [SerializeField] private bool autoNeutralBuoyancy = false;
 
     [Tooltip("1 = neutral buoyancy. Below 1 sinks slowly, above 1 floats slowly.")]
     [SerializeField] private float targetBuoyancyRatio = 1f;
@@ -58,10 +58,10 @@ public class Buoyancy : MonoBehaviour
     [SerializeField] private float buoyancyScale = 1f;
 
     [Tooltip("Vertical damping applied at CB to calm oscillations near equilibrium.")]
-    [SerializeField] private float verticalDamping = 15f;
+    [SerializeField] private float verticalDamping = 0f;
 
     [Tooltip("Angular damping helper only for roll/pitch stabilization.")]
-    [SerializeField] private float restoringAngularDamping = 2.5f;
+    [SerializeField] private float restoringAngularDamping = 0f;
 
     [Header("Optional Water Surface")]
     [Tooltip("If enabled, buoyancy is only applied when CB is below waterLevelY.")]

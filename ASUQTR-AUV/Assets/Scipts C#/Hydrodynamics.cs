@@ -51,43 +51,43 @@ public class Hydrodynamics : MonoBehaviour
 
     [Header("Coefficients de drag linéaire (repère corps local)")]
     [Tooltip("Drag linéaire selon l'axe local X (sway)")]
-    public float linearDragX = 20f;
+    public float linearDragX = 6.22f;
 
     [Tooltip("Drag linéaire selon l'axe local Y (heave)")]
-    public float linearDragY = 25f;
+    public float linearDragY = 5.15f;
 
     [Tooltip("Drag linéaire selon l'axe local Z (surge)")]
-    public float linearDragZ = 15f;
+    public float linearDragZ = 4.03f;
 
     [Header("Coefficients de drag quadratique (repère corps local)")]
     [Tooltip("Drag quadratique selon l'axe local X (sway)")]
-    public float quadraticDragX = 30f;
+    public float quadraticDragX = 21.66f;
 
     [Tooltip("Drag quadratique selon l'axe local Y (heave)")]
-    public float quadraticDragY = 35f;
+    public float quadraticDragY = 36.99f;
 
     [Tooltip("Drag quadratique selon l'axe local Z (surge)")]
-    public float quadraticDragZ = 25f;
+    public float quadraticDragZ = 18.18f;
 
     [Header("Damping angulaire (repère corps local)")]
     [Tooltip("Damping angulaire linéaire autour de l'axe local X (roll)")]
-    public float angularLinearDragX = 8f;
+    public float angularLinearDragX = 0.07f;
 
     [Tooltip("Damping angulaire linéaire autour de l'axe local Y (pitch)")]
-    public float angularLinearDragY = 10f;
+    public float angularLinearDragY = 0.07f;
 
     [Tooltip("Damping angulaire linéaire autour de l'axe local Z (yaw)")]
-    public float angularLinearDragZ = 8f;
+    public float angularLinearDragZ = 0.07f;
 
     [Header("Damping angulaire quadratique (optionnel)")]
     [Tooltip("Damping angulaire quadratique autour de l'axe local X (roll)")]
-    public float angularQuadraticDragX = 1.5f;
+    public float angularQuadraticDragX = 1.55f;
 
     [Tooltip("Damping angulaire quadratique autour de l'axe local Y (pitch)")]
-    public float angularQuadraticDragY = 2.0f;
+    public float angularQuadraticDragY = 1.55f;
 
     [Tooltip("Damping angulaire quadratique autour de l'axe local Z (yaw)")]
-    public float angularQuadraticDragZ = 1.5f;
+    public float angularQuadraticDragZ = 1.55f;
 
     [Header("Options")]
     [Tooltip("Activer/désactiver le damping angulaire quadratique")]

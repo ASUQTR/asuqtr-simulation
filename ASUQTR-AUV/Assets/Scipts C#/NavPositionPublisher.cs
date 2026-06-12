@@ -51,6 +51,10 @@ public class NavPositionPublisher : MonoBehaviour
     [Tooltip("Intervalle entre deux publications (s). Par exemple 0.1 = 10 Hz.")]
     public float publishInterval = 0.1f;
 
+    [Header("Debug")]
+    [Tooltip("Log every published odometry message. Leave disabled for laptop simulation performance.")]
+    public bool logPublishedOdom = false;
+
     // Origine NED capturée au démarrage (équivalent à initial_position / reset_odom)
     private Vector3 originNED;
     private float timer = 0f;
@@ -262,6 +266,7 @@ public class NavPositionPublisher : MonoBehaviour
 	         "}}";
 
         SimpleRosSocket.Instance.Send(msg);
-        Debug.Log($"[NavPositionPublisher] publishing odom pos=({enuX:F3},{enuY:F3},{enuZ:F3}) lin=({linearX:F3},{linearY:F3},{linearZ:F3})");
+        if (logPublishedOdom)
+            Debug.Log($"[NavPositionPublisher] publishing odom pos=({enuX:F3},{enuY:F3},{enuZ:F3}) lin=({linearX:F3},{linearY:F3},{linearZ:F3})");
     }
 }

@@ -52,6 +52,13 @@ public class SimpleRosSocket : MonoBehaviour
     [Tooltip("URL du rosbridge (ex: ws://127.0.0.1:9090)")]
     public string rosbridgeUrl = "ws://127.0.0.1:9090";
 
+    [Header("Debug")]
+    [Tooltip("Log every incoming /thruster_cmd message. Leave disabled for laptop simulation performance.")]
+    public bool logThrusterMessages = false;
+
+    [Tooltip("Log topic advertisements. Useful while debugging rosbridge, noisy otherwise.")]
+    public bool logAdvertisements = false;
+
     private WebSocket ws;
     private readonly HashSet<string> advertisedTopics = new HashSet<string>();
     private readonly List<(string topic, string type)> pendingAdvertisements = new List<(string topic, string type)>();
@@ -104,7 +111,8 @@ public class SimpleRosSocket : MonoBehaviour
                 else if (msg.Contains("/thruster_cmd"))
                 {
                     thrusterMessageReceived = true;
-                    Debug.Log("[ROS] Received raw /thruster_cmd from rosbridge");
+                    if (logThrusterMessages)
+                        Debug.Log("[ROS] Received raw /thruster_cmd from rosbridge");
                 }
                 OnRawMessage?.Invoke(msg);
             };
@@ -186,7 +194,8 @@ public class SimpleRosSocket : MonoBehaviour
             string adv = "{\"op\":\"advertise\",\"topic\":\"" + topic + "\",\"type\":\"" + type + "\"}";
             ws.SendText(adv);
             advertisedTopics.Add(topic);
-            Debug.Log($"[ROS] Advertised {topic} as {type}");
+            if (logAdvertisements)
+                Debug.Log($"[ROS] Advertised {topic} as {type}");
             return;
         }
 
@@ -205,7 +214,8 @@ public class SimpleRosSocket : MonoBehaviour
                 string msg = "{\"op\":\"advertise\",\"topic\":\"" + adv.topic + "\",\"type\":\"" + adv.type + "\"}";
                 ws.SendText(msg);
                 advertisedTopics.Add(adv.topic);
-                Debug.Log($"[ROS] Advertised {adv.topic} as {adv.type}");
+                if (logAdvertisements)
+                    Debug.Log($"[ROS] Advertised {adv.topic} as {adv.type}");
             }
         }
 
