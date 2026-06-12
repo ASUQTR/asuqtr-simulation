@@ -11,7 +11,7 @@
 ///
 /// RÔLE ET RESPONSABILITÉS :
 /// - Lire les consignes normalisées de chaque moteur (array `motorThrottles` fourni par
-///   `ThrusterReceiver` qui écoute le topic ROS "/actuator/motors").
+///   `ThrusterReceiver` qui écoute le topic ROS "/thruster_cmd").
 /// - Convertir chaque consigne en poussée cible (Newton) via `ThrusterModel`.
 /// - Simuler la dynamique moteur (lag / constante de temps) avec un modèle du 1er ordre
 ///   pour rendre la réponse plus réaliste (la poussée ne change pas instantanément).
@@ -89,16 +89,30 @@ public class ThrusterApplier : MonoBehaviour
         if (receiver == null || submarine == null || thrusters == null)
             return;
 
-        // On ne parcourt que le nombre minimal d'éléments disponibles pour éviter les OOB
-        int count = Mathf.Min(thrusters.Length, receiver.motorThrottles.Length);
+        // On ne parcourt que le nombre minimal d'éléments disponibles pour éviter les OOB.
+        // Si ROS publie sub_interfaces/ThrusterCommand.efforts, les valeurs sont déjà en Newtons.
+        int receiverCount = receiver.HasEffortsInNewtons
+            ? receiver.motorEffortsN.Length
+            : receiver.motorThrottles.Length;
+        int count = Mathf.Min(thrusters.Length, receiverCount);
+
+        if (currentForcesN == null || currentForcesN.Length < count)
+            currentForcesN = new float[count];
 
         for (int i = 0; i < count; i++)
         {
-            // 1. Lecture de la commande moteur normalisée provenant du receiver (ROS ou test local)
-            float cmd = receiver.motorThrottles[i];
-
-            // 2. Conversion commande -> poussée cible (kgf -> N) via le modèle empirique
-            float targetForceN = ThrusterModel.CommandToForceN(cmd);
+            float targetForceN;
+            if (receiver.HasEffortsInNewtons)
+            {
+                // ROS control_node publie déjà les efforts en Newtons.
+                targetForceN = receiver.motorEffortsN[i];
+            }
+            else
+            {
+                // Compatibilité avec les commandes normalisées locales/legacy.
+                float cmd = receiver.motorThrottles[i];
+                targetForceN = ThrusterModel.CommandToForceN(cmd);
+            }
 
             float appliedForceN;
 

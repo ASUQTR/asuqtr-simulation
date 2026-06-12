@@ -2,6 +2,7 @@
 using NativeWebSocket;
 using System;
 using System.Text;
+using System.Collections.Generic;
 
 /// <summary>
 /// SimpleRosSocket
@@ -11,7 +12,7 @@ using System.Text;
 ///
 /// Responsabilités :
 /// — Gérer la connexion WebSocket vers rosbridge (ws://host:port).
-/// — S'abonner à un topic d'exemple (/actuator/motors) après connexion.
+/// — S'abonner au topic de commande des thrusters après connexion.
 /// — Diffuser chaque message JSON entrant via l'événement public OnRawMessage (Action<string>).
 /// — Fournir une méthode Send(string json) pour envoyer des messages vers rosbridge.
 ///
@@ -19,8 +20,7 @@ using System.Text;
 /// - Le format attendu est rosbridge JSON. Exemple d'abonnement envoyé :
 ///   {
 ///     "op":"subscribe",
-///     "topic":"/actuator/motors",
-///     "type":"asuqtr_actuator_node/ActuatorThrottle"
+///     "topic":"/thruster_cmd"
 ///   }
 /// - Les récepteurs (ex: ThrusterReceiver) doivent écouter OnRawMessage et parser
 ///   (préférer une désérialisation structurée avec JsonUtility / Newtonsoft plutôt que du parsing texte).
@@ -40,7 +40,7 @@ using System.Text;
 ///
 /// Robustesse :
 /// - Cette classe expose CheckConnection() pour debug et Send(json) pour l'envoi.
-/// - La méthode SubscribeToMotors() est un exemple ; adaptez les abonnements au besoin.
+/// - La méthode SubscribeToThrusters() centralise l'abonnement aux commandes moteur.
 /// - Pour les projets plus complexes, ajoutez ré-authentification / reconnexion automatique / file d'envoi.
 /// </summary>
 public class SimpleRosSocket : MonoBehaviour
@@ -53,6 +53,11 @@ public class SimpleRosSocket : MonoBehaviour
     public string rosbridgeUrl = "ws://127.0.0.1:9090";
 
     private WebSocket ws;
+    private readonly HashSet<string> advertisedTopics = new HashSet<string>();
+    private readonly List<(string topic, string type)> pendingAdvertisements = new List<(string topic, string type)>();
+    private float nextThrusterSubscribeRetryTime = 0f;
+    private int thrusterSubscribeAttempts = 0;
+    private bool thrusterMessageReceived = false;
 
     /// <summary>
     /// Evénement invoqué pour chaque message JSON brut reçu depuis rosbridge.
@@ -85,8 +90,8 @@ public class SimpleRosSocket : MonoBehaviour
             ws.OnOpen += () =>
             {
                 Debug.Log("[ROS] Connected successfully");
-                // Exemple : s'abonner au topic des moteurs après connexion
-                SubscribeToMotors();
+                SubscribeToThrusters();
+                FlushPendingAdvertisements();
             };
 
             // OnMessage reçoit un tableau d'octets ; on le convertit en chaîne UTF8 et on
@@ -94,6 +99,13 @@ public class SimpleRosSocket : MonoBehaviour
             ws.OnMessage += (bytes) =>
             {
                 string msg = Encoding.UTF8.GetString(bytes);
+                if ((msg.Contains("\"op\"") && msg.Contains("\"status\"")) || msg.Contains("\"level\":\"error\""))
+                    Debug.Log("[ROS] Status: " + msg);
+                else if (msg.Contains("/thruster_cmd"))
+                {
+                    thrusterMessageReceived = true;
+                    Debug.Log("[ROS] Received raw /thruster_cmd from rosbridge");
+                }
                 OnRawMessage?.Invoke(msg);
             };
 
@@ -122,22 +134,82 @@ public class SimpleRosSocket : MonoBehaviour
 #if !UNITY_WEBGL || UNITY_EDITOR
         ws?.DispatchMessageQueue();
 #endif
+
+        if (IsConnected && !thrusterMessageReceived && thrusterSubscribeAttempts < 5 && Time.time >= nextThrusterSubscribeRetryTime)
+        {
+            SubscribeToThrusters();
+        }
     }
 
     /// <summary>
-    /// Exemple d'abonnement : envoie un message rosbridge "subscribe" pour /actuator/motors.
-    /// Adaptez topic/type selon votre configuration ROS.
+    /// Envoie un message rosbridge "subscribe" pour /thruster_cmd.
     /// </summary>
-    void SubscribeToMotors()
+    async void SubscribeToThrusters()
     {
         string sub = @"{
             ""op"": ""subscribe"",
-            ""topic"": ""/actuator/motors"",
-            ""type"": ""asuqtr_actuator_node/ActuatorThrottle""
+            ""topic"": ""/thruster_cmd"",
+            ""type"": ""sub_interfaces/msg/ThrusterCommand"",
+            ""queue_length"": 1
         }";
 
-        ws.SendText(sub);
-        Debug.Log("[ROS] Subscribed to /actuator/motors");
+        if (ws == null || ws.State != WebSocketState.Open)
+            return;
+
+        try
+        {
+            nextThrusterSubscribeRetryTime = Time.time + 2f;
+            await ws.SendText(sub);
+            thrusterSubscribeAttempts++;
+            Debug.Log($"[ROS] Sent subscribe request {thrusterSubscribeAttempts}/5 to /thruster_cmd as sub_interfaces/msg/ThrusterCommand");
+
+            if (thrusterSubscribeAttempts == 5)
+                Debug.LogWarning("[ROS] No /thruster_cmd message received after 5 subscribe requests. Check /client_count, /connected_clients, and whether /thruster_cmd is actively publishing.");
+        }
+        catch (Exception e)
+        {
+            nextThrusterSubscribeRetryTime = Time.time + 2f;
+            Debug.LogWarning("[ROS] Failed to subscribe to /thruster_cmd: " + e.Message);
+        }
+    }
+
+    /// <summary>
+    /// Advertise a ROS topic to rosbridge so ROS2 can infer the topic type before publishing.
+    /// </summary>
+    public void AdvertiseTopic(string topic, string type)
+    {
+        if (advertisedTopics.Contains(topic))
+            return;
+
+        if (ws != null && ws.State == WebSocketState.Open)
+        {
+            string adv = "{\"op\":\"advertise\",\"topic\":\"" + topic + "\",\"type\":\"" + type + "\"}";
+            ws.SendText(adv);
+            advertisedTopics.Add(topic);
+            Debug.Log($"[ROS] Advertised {topic} as {type}");
+            return;
+        }
+
+        if (!pendingAdvertisements.Exists(x => x.topic == topic))
+        {
+            pendingAdvertisements.Add((topic, type));
+        }
+    }
+
+    void FlushPendingAdvertisements()
+    {
+        foreach (var adv in pendingAdvertisements)
+        {
+            if (!advertisedTopics.Contains(adv.topic))
+            {
+                string msg = "{\"op\":\"advertise\",\"topic\":\"" + adv.topic + "\",\"type\":\"" + adv.type + "\"}";
+                ws.SendText(msg);
+                advertisedTopics.Add(adv.topic);
+                Debug.Log($"[ROS] Advertised {adv.topic} as {adv.type}");
+            }
+        }
+
+        pendingAdvertisements.Clear();
     }
 
     /// <summary>

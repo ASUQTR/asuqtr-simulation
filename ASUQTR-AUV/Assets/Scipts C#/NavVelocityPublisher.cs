@@ -3,12 +3,12 @@ using UnityEngine;
 
 
 /// <summary>
-/// Publie la vitesse linéaire du sous-marin exprimée dans le repère corps VectorNav (body frame)
-/// vers le topic ROS `/nav_node/velocity` (format rosbridge JSON).
+/// Publie optionnellement la vitesse linéaire du sous-marin pour debug Unity.
 ///
 /// But :
-/// - Fournir au contrôleur ROS (LQR / nav_node) la vitesse linéaire du véhicule dans son repère corps
-///   (u, v, w) en m/s, cohérente avec la convention NED utilisée pour IMU et position.
+/// - Fournir un topic de debug si on veut inspecter la vitesse calculée côté Unity.
+/// - La boucle de contrôle principale n'utilise plus ce publisher : la vitesse utile au LQR est déjà
+///   incluse dans /odometry/filtered via NavPositionPublisher.
 ///
 /// Conventions d'axes (important, centraliser si possible) :
 /// - Repère Unity (body) : X = droite (right), Y = haut (up), Z = avant (forward)
@@ -26,16 +26,22 @@ using UnityEngine;
 /// - Cette conversion doit être cohérente avec NavImuPublisher et NavPositionPublisher.
 ///   Idéalement, centraliser la logique de conversion Unity→NED dans un utilitaire partagé
 ///   pour éviter des inversions/signes incohérents qui cassent la boucle de contrôle.
-/// - Le message publié ici contient un header (seq, stamp) et un champ `point` (x,y,z)
+/// - Le message publié ici contient un header et un champ `point` (x,y,z)
 ///   correspondant à (u,v,w) en m/s ; `frame_id` = "base_link" (repère corps du sous-marin).
 /// - Fréquence de publication configurable via `publishRateHz`.
 /// - Ce publisher n'envoie que la vitesse linéaire ; les vitesses angulaires sont fournies
-///   par l'IMU (/vectornav/IMU) si nécessaire.
+///   par l'IMU (/vectornav/imu) si nécessaire.
 ///
 /// Unités : m/s pour la vitesse linéaire.
 /// </summary>
 public class NavVelocityPublisher : MonoBehaviour
 {
+    [Tooltip("Laisser false en simulation de contrôle normale. /odometry/filtered contient déjà twist.")]
+    public bool publishToRos = false;
+
+    [Tooltip("Topic de debug optionnel pour la vitesse Unity.")]
+    public string topic = "/debug/unity_velocity";
+
     [Tooltip("Fréquence de publication en Hz")]
     public float publishRateHz = 30f;
 
@@ -53,7 +59,7 @@ public class NavVelocityPublisher : MonoBehaviour
 
     void FixedUpdate()
     {
-        if (SimpleRosSocket.Instance == null || !SimpleRosSocket.Instance.IsConnected || rb == null)
+        if (!publishToRos || SimpleRosSocket.Instance == null || !SimpleRosSocket.Instance.IsConnected || rb == null)
             return;
 
         timer += Time.fixedDeltaTime;
@@ -80,11 +86,11 @@ public class NavVelocityPublisher : MonoBehaviour
         // Message rosbridge JSON (équivalent minimal à un twist.linear ou geometry_msgs/Point)
         string msg =
             "{\"op\":\"publish\"," +
-             "\"topic\":\"/nav_node/velocity\"," +
+             "\"topic\":\"" + topic + "\"," +
              "\"msg\":{" +
                "\"header\":{" +
                  "\"seq\":" + seq++ + "," +
-                 "\"stamp\":{\"secs\":" + secs + ",\"nsecs\":" + nsecs + "}," +
+                 "\"stamp\":{\"sec\":" + secs + ",\"nanosec\":" + nsecs + "}," +
                  "\"frame_id\":\"base_link\"" +   // repère corps du sous-marin
                "}," +
                "\"point\":{" +

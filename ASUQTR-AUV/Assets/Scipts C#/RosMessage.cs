@@ -8,10 +8,9 @@
 /// - Exemple JSON attendu pour une commande de moteurs (rosbridge) :
 ///   {
 ///     "op":"publish",
-///     "topic":"/actuator/motors",
+///     "topic":"/thruster_cmd",
 ///     "msg":{
-///       "ids":[0,1,2,3,4,5,6,7],
-///       "throttles":[0.0,0.8,-0.5,...]
+///       "efforts":[0.0,8.0,-5.0,...]
 ///     }
 ///   }
 /// 
@@ -43,6 +42,12 @@ public class ActuatorThrottleMsg
     /// length doit correspondre à ids.Length (ou être interprétée selon la logique du receiver).
     /// </summary>
     public float[] throttles;
+
+    /// <summary>
+    /// Tableau des efforts en Newtons publiés par le contrôleur ROS.
+    /// Ce champ est utilisé par la topologie actuelle `sub_interfaces/msg/ThrusterCommand`.
+    /// </summary>
+    public float[] efforts;
 }
 
 [Serializable]
@@ -54,12 +59,12 @@ public class RosbridgeWrapper
     public string op;
 
     /// <summary>
-    /// Topic ROS (ex: "/actuator/motors").
+    /// Topic ROS (ex: "/thruster_cmd").
     /// </summary>
     public string topic;
 
     /// <summary>
-    /// Payload du message — ici on l'attend de type ActuatorThrottleMsg pour /actuator/motors.
+    /// Payload du message — legacy. Le receiver actuel parse directement ThrusterCommand.efforts.
     /// </summary>
     public ActuatorThrottleMsg msg;
 }

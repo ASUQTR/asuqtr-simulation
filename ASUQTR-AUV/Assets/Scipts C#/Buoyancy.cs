@@ -48,6 +48,12 @@ public class Buoyancy : MonoBehaviour
     [SerializeField] private Vector3 localCenterOfBuoyancy = new Vector3(0f, 0.02f, 0f);
 
     [Header("Buoyancy Tuning")]
+    [Tooltip("Automatically choose buoyancyScale from Rigidbody mass and displacedVolume at startup.")]
+    [SerializeField] private bool autoNeutralBuoyancy = true;
+
+    [Tooltip("1 = neutral buoyancy. Below 1 sinks slowly, above 1 floats slowly.")]
+    [SerializeField] private float targetBuoyancyRatio = 1f;
+
     [Tooltip("Extra multiplier on buoyancy force. 1 = physical nominal value.")]
     [SerializeField] private float buoyancyScale = 1f;
 
@@ -82,6 +88,9 @@ public class Buoyancy : MonoBehaviour
         // Aligne le centre de masse du Rigidbody avec la valeur spécifiée ici,
         // sauf si vous gérez le centre de masse ailleurs volontairement.
         rb.centerOfMass = localCenterOfGravity;
+
+        if (autoNeutralBuoyancy)
+            SetNeutralBuoyancyScale();
     }
 
     private void FixedUpdate()
@@ -162,6 +171,23 @@ public class Buoyancy : MonoBehaviour
 
         float neutralScale = weight / nominalBuoyancy;
         Debug.Log($"[Buoyancy] Neutral buoyancy scale ≈ {neutralScale:F4}");
+    }
+
+    [ContextMenu("Apply Neutral Buoyancy Scale")]
+    private void SetNeutralBuoyancyScale()
+    {
+        if (rb == null)
+            rb = GetComponent<Rigidbody>();
+
+        float nominalBuoyancy = waterDensity * displacedVolume * g;
+        if (nominalBuoyancy <= 1e-6f)
+        {
+            Debug.LogWarning("[Buoyancy] Cannot auto tune buoyancy: displaced volume or water density is too small.");
+            return;
+        }
+
+        buoyancyScale = (rb.mass * g / nominalBuoyancy) * targetBuoyancyRatio;
+        Debug.Log($"[Buoyancy] Auto buoyancy scale = {buoyancyScale:F4} for mass={rb.mass:F2}kg, volume={displacedVolume:F4}m^3, ratio={targetBuoyancyRatio:F3}");
     }
 
     private void OnDrawGizmosSelected()
