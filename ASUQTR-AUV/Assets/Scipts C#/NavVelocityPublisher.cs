@@ -41,7 +41,7 @@ public class NavVelocityPublisher : MonoBehaviour
 
     private Rigidbody rb;
     private float timer = 0f;
-    private uint seq = 0;
+    // seq supprimé — ROS2 Jazzy n'a plus de champ seq dans Header
 
     void Start()
     {
@@ -83,9 +83,8 @@ public class NavVelocityPublisher : MonoBehaviour
              "\"topic\":\"/nav_node/velocity\"," +
              "\"msg\":{" +
                "\"header\":{" +
-                 "\"seq\":" + seq++ + "," +
                  "\"stamp\":{\"secs\":" + secs + ",\"nsecs\":" + nsecs + "}," +
-                 "\"frame_id\":\"base_link\"" +   // repère corps du sous-marin
+                 "\"frame_id\":\"base_link\"" +
                "}," +
                "\"point\":{" +
                  "\"x\":" + u.ToString("F6", CultureInfo.InvariantCulture) + "," +

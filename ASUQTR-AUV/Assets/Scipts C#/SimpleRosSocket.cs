@@ -133,7 +133,7 @@ public class SimpleRosSocket : MonoBehaviour
         string sub = @"{
             ""op"": ""subscribe"",
             ""topic"": ""/actuator/motors"",
-            ""type"": ""asuqtr_actuator_node/ActuatorThrottle""
+            ""type"": ""std_msgs/Float32MultiArray""
         }";
 
         ws.SendText(sub);

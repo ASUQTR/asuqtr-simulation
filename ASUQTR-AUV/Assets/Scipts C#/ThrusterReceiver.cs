@@ -89,8 +89,8 @@ public class ThrusterReceiver : MonoBehaviour
 
         try
         {
-            // Recherche textuelle de la clé "throttles"
-            int idx = json.IndexOf("\"throttles\"");
+            // Recherche textuelle de la clé "data" (std_msgs/Float32MultiArray)
+            int idx = json.IndexOf("\"data\"");
             if (idx < 0) return;
 
             // Repérer les crochets du tableau et extraire le contenu brut

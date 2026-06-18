@@ -59,7 +59,7 @@ public class NavImuPublisher : MonoBehaviour
 
     private Rigidbody rb;
     private float timer = 0f;
-    private uint seq = 0;
+    // seq supprimé — ROS2 Jazzy n'a plus de champ seq dans Header
     private Vector3 lastVelocity;
     private bool firstFrame = true;
 
@@ -203,7 +203,6 @@ public class NavImuPublisher : MonoBehaviour
          "\"topic\":\"/vectornav/IMU\"," +
          "\"msg\":{" +
            "\"header\":{" +
-             "\"seq\":" + seq++ + "," +
              "\"stamp\":{\"secs\":" + secs + ",\"nsecs\":" + nsecs + "}," +
              "\"frame_id\":\"vectornav\"" +
            "}," +
