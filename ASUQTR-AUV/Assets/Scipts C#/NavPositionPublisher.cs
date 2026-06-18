@@ -2,7 +2,7 @@
 using UnityEngine;
 
 /// <summary>
-/// Publie l'odométrie du sous-marin vers le topic ROS configuré (ex: /odometry/filtered).
+/// Publie l'odométrie brute simulée du sous-marin vers le topic ROS configuré.
 ///
 /// Rôle :
 ///— Fournir une publication périodique de l'état du Rigidbody en nav_msgs/Odometry,
@@ -25,7 +25,8 @@ using UnityEngine;
 /// - Méthode publique ResetOrigin() permet de recapturer l'origine à tout moment.
 ///
 /// Message publié (format rosbridge) :
-/// - JSON équivalent à nav_msgs/msg/Odometry sur /odometry/filtered.
+/// - JSON équivalent à nav_msgs/msg/Odometry sur /unity/odometry/raw.
+/// - robot_localization fusionne ensuite cette odométrie brute vers /odometry/filtered.
 /// - Fréquence contrôlée par publishInterval (en secondes).
 ///
 /// Remarques :
@@ -39,14 +40,20 @@ public class NavPositionPublisher : MonoBehaviour
     public Rigidbody rb;
 
     [Header("ROS")]
-    [Tooltip("Topic rosbridge qui recevra l'odométrie nav_msgs/Odometry.")]
-    public string topic = "/odometry/filtered";
+    [Tooltip("Topic rosbridge qui recevra l'odométrie brute simulée nav_msgs/Odometry.")]
+    public string topic = "/unity/odometry/raw";
 
     [Tooltip("Frame ROS parent de l'odométrie.")]
     public string frameId = "odom";
 
     [Tooltip("Frame ROS enfant du sous-marin.")]
     public string childFrameId = "base_link";
+
+    [Tooltip("Publie /clock avec le temps Unity pour robot_localization en use_sim_time.")]
+    public bool publishClock = true;
+
+    [Tooltip("Topic ROS2 rosgraph_msgs/Clock.")]
+    public string clockTopic = "/clock";
 
     [Tooltip("Intervalle entre deux publications (s). Par exemple 0.1 = 10 Hz.")]
     public float publishInterval = 0.1f;
@@ -193,6 +200,8 @@ public class NavPositionPublisher : MonoBehaviour
         if (SimpleRosSocket.Instance != null)
         {
             SimpleRosSocket.Instance.AdvertiseTopic(topic, "nav_msgs/Odometry");
+            if (publishClock)
+                SimpleRosSocket.Instance.AdvertiseTopic(clockTopic, "rosgraph_msgs/Clock");
             topicAdvertised = true;
         }
     }
@@ -229,12 +238,31 @@ public class NavPositionPublisher : MonoBehaviour
         float angularY = -angularLocalUnity.x;
         float angularZ = angularLocalUnity.y;
 
+        double now = Time.timeAsDouble;
+        uint secs = (uint)now;
+        uint nsecs = (uint)((now - secs) * 1e9);
+
+        string poseCovariance = "[0.0025,0,0,0,0,0,0,0.0025,0,0,0,0,0,0,0.0025,0,0,0,0,0,0,0.01,0,0,0,0,0,0,0.01,0,0,0,0,0,0,0.01]";
+        string twistCovariance = "[0.01,0,0,0,0,0,0,0.01,0,0,0,0,0,0,0.01,0,0,0,0,0,0,0.02,0,0,0,0,0,0,0.02,0,0,0,0,0,0,0.02]";
+
+        if (publishClock)
+        {
+            string clockMsg =
+                "{\"op\":\"publish\"," +
+                 "\"topic\":\"" + clockTopic + "\"," +
+                 "\"msg\":{" +
+                   "\"clock\":{\"sec\":" + secs + ",\"nanosec\":" + nsecs + "}" +
+                 "}}";
+            SimpleRosSocket.Instance.Send(clockMsg);
+        }
+
         // Construction JSON rosbridge nav_msgs/Odometry.
         string msg =
             "{\"op\":\"publish\"," +
 	         "\"topic\":\"" + topic + "\"," +
 	         "\"msg\":{" +
 	           "\"header\":{" +
+                 "\"stamp\":{\"sec\":" + secs + ",\"nanosec\":" + nsecs + "}," +
                  "\"frame_id\":\"" + frameId + "\"" +
 	           "}," +
                "\"child_frame_id\":\"" + childFrameId + "\"," +
@@ -250,7 +278,7 @@ public class NavPositionPublisher : MonoBehaviour
                    "\"z\":" + qRos.z.ToString("F6", CultureInfo.InvariantCulture) + "," +
                    "\"w\":" + qRos.w.ToString("F6", CultureInfo.InvariantCulture) +
                  "}" +
-               "}}," +
+               "},\"covariance\":" + poseCovariance + "}," +
                "\"twist\":{\"twist\":{" +
                  "\"linear\":{" +
                    "\"x\":" + linearX.ToString("F6", CultureInfo.InvariantCulture) + "," +
@@ -262,7 +290,7 @@ public class NavPositionPublisher : MonoBehaviour
                    "\"y\":" + angularY.ToString("F6", CultureInfo.InvariantCulture) + "," +
                    "\"z\":" + angularZ.ToString("F6", CultureInfo.InvariantCulture) +
                  "}" +
-               "}}" +
+               "},\"covariance\":" + twistCovariance + "}" +
 	         "}}";
 
         SimpleRosSocket.Instance.Send(msg);
