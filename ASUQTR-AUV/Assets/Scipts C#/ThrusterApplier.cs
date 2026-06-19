@@ -83,6 +83,17 @@ public class ThrusterApplier : MonoBehaviour
         currentForcesN = new float[8];
     }
 
+    void OnDisable()
+    {
+        // Un ThrusterApplier désactivé est un vrai test "thrusters off".
+        // Efface aussi la mémoire du lag pour éviter une reprise avec une force résiduelle.
+        if (currentForcesN == null)
+            return;
+
+        for (int i = 0; i < currentForcesN.Length; i++)
+            currentForcesN[i] = 0f;
+    }
+
     void FixedUpdate()
     {
         // Sécurité : vérifie que tous les éléments requis sont présents

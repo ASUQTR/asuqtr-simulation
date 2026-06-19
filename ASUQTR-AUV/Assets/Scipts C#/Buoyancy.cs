@@ -63,11 +63,8 @@ public class Buoyancy : MonoBehaviour
     [Tooltip("Angular damping helper only for roll/pitch stabilization.")]
     [SerializeField] private float restoringAngularDamping = 0f;
 
-    [Header("Optional Water Surface")]
-    [Tooltip("If enabled, buoyancy is only applied when CB is below waterLevelY.")]
-    [SerializeField] private bool useWaterSurface = false;
-
-    [Tooltip("World Y coordinate of water surface.")]
+    [Header("Water Surface")]
+    [Tooltip("World Y coordinate of the water surface. Buoyancy stops when the center of buoyancy reaches this height.")]
     [SerializeField] private float waterLevelY = 0f;
 
     [Header("Debug")]
@@ -102,20 +99,13 @@ public class Buoyancy : MonoBehaviour
         Vector3 worldCB = transform.TransformPoint(localCenterOfBuoyancy);
         Vector3 worldCG = transform.TransformPoint(localCenterOfGravity);
 
-        // Logique de surface optionnelle (si activée, la poussée n'est appliquée que
-        // quand le CB est sous le niveau d'eau défini)
-        float immersionFactor = 1f;
-        if (useWaterSurface)
-        {
-            if (worldCB.y >= waterLevelY)
-                immersionFactor = 0f;
-        }
-
-        if (immersionFactor <= 0f)
+        // Aucune poussée d'Archimède lorsque le centre de flottabilité atteint
+        // la surface. La gravité reste active et ramène le sous-marin dans l'eau.
+        if (worldCB.y >= waterLevelY)
             return;
 
         // Poussée d'Archimède (force verticale vers le haut)
-        float buoyantForceMagnitude = waterDensity * displacedVolume * g * buoyancyScale * immersionFactor;
+        float buoyantForceMagnitude = waterDensity * displacedVolume * g * buoyancyScale;
         Vector3 buoyantForce = Vector3.up * buoyantForceMagnitude;
 
         // Damping vertical appliqué au CB pour amortir les oscillations (projette la vitesse locale sur Y)
