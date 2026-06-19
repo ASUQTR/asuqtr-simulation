@@ -126,7 +126,10 @@ public class Task1GateBuilder : MonoBehaviour
 
         // ── Images de rôle (une de chaque côté du diviseur) ─────────────
         // Placées au centre de chaque passage, face à l'AUV qui approche (-Z par convention).
-        float imageY = gateHeight * 0.5f;
+        // Tangentes au Top_Pipe : le bord supérieur de l'image touche le dessous
+        // du tube (centre du tube à gateHeight, rayon pipeDiameter*0.5).
+        float topPipeBottomY = gateHeight - pipeDiameter * 0.5f;
+        float imageY = topPipeBottomY - roleImageSize * 0.5f;
         float imageX = halfWidth * 0.5f;
 
         Texture2D repairTex = ResolveTexture(surveyRepairTexture, SurveyRepairTexturePath);
