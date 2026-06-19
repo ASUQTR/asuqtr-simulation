@@ -151,24 +151,16 @@ public class Task3ReconBuilder : MonoBehaviour
             new Vector3(pipeDiameter, pipelineHeight * 0.5f, pipeDiameter),
             ColorPvcWhite);
 
-        // Bac (bin), posé sur le fond, décalé latéralement.
-        float binCenterY = binBottomHeight + binSize.y * 0.5f;
-        CreatePrimitiveUnder(riser.transform, "Bin", PrimitiveType.Cube,
-            new Vector3(sideX, binCenterY, 0f),
-            Quaternion.identity,
-            binSize,
-            ColorBin);
-
-        // Panneau d'image de rôle, fixé sur le montant à mi-hauteur, face au bac.
+        // Bac (bin) ouvert sur le dessus, posé sur le fond, décalé latéralement.
+        // L'image de rôle est collée au fond intérieur du bac (plutôt que sur un
+        // panneau séparé sur le montant) : suite au retour d'Elliot, "mettre les
+        // images dans les carrés [bacs] et faire qu'une de ses faces soit ouverte".
+        // L'ancien panneau séparé utilisait en plus une rotation (LookRotation)
+        // qui faisait pointer la face visible du Quad à l'opposé du bac — d'où le
+        // signalement "objets mal liés" (image invisible / mal orientée).
         Color placeholderColor = isFireRole ? ColorFireRole : ColorBloodRole;
-        GameObject panel = CreatePrimitiveUnder(riser.transform, "RoleImage", PrimitiveType.Quad,
-            new Vector3(0f, pipelineHeight * 0.7f, 0f),
-            Quaternion.LookRotation(new Vector3(sideX, 0f, 0f)),
-            new Vector3(roleImageSize, roleImageSize, 1f),
-            placeholderColor,
-            roleTexture);
-        Collider panelCol = panel.GetComponent<Collider>();
-        if (panelCol != null) panelCol.enabled = false;
+        CreateOpenTopBin(riser.transform, "Bin", new Vector3(sideX, 0f, 0f),
+            binSize, ColorBin, roleTexture, placeholderColor);
 
         // Lumière (placeholder sphère) — état initial allumé selon le texte officiel.
         GameObject light = CreatePrimitiveUnder(riser.transform, "Light", PrimitiveType.Sphere,
@@ -194,6 +186,61 @@ public class Task3ReconBuilder : MonoBehaviour
         lightUnit.detectorTransform = detector.transform;
         lightUnit.startLightOn = lightInitiallyOn;
         lightUnit.activationDistance = magnetActivationDistance;
+    }
+
+    // =====================================================================
+    //  BAC OUVERT (5 faces : fond + 4 parois, dessus ouvert) AVEC IMAGE DE
+    //  RÔLE COLLÉE AU FOND INTÉRIEUR, VISIBLE À TRAVERS L'OUVERTURE DU HAUT.
+    // =====================================================================
+
+    private GameObject CreateOpenTopBin(Transform parent, string name, Vector3 localPos,
+        Vector3 size, Color binColor, Texture2D roleTexture, Color roleColor)
+    {
+        GameObject bin = new GameObject(name);
+        bin.transform.SetParent(parent, worldPositionStays: false);
+        bin.transform.localPosition = new Vector3(localPos.x, binBottomHeight, localPos.z);
+
+#if UNITY_EDITOR
+        Undo.RegisterCreatedObjectUndo(bin, "Create " + name);
+#endif
+
+        const float wallThickness = 0.015f;
+        float halfX = size.x * 0.5f;
+        float halfZ = size.z * 0.5f;
+
+        // Fond du bac.
+        CreatePrimitiveUnder(bin.transform, "Bin_Bottom", PrimitiveType.Cube,
+            new Vector3(0f, wallThickness * 0.5f, 0f), Quaternion.identity,
+            new Vector3(size.x, wallThickness, size.z), binColor);
+
+        // 4 parois latérales — pas de face du dessus : le bac reste ouvert.
+        CreatePrimitiveUnder(bin.transform, "Bin_Wall_Left", PrimitiveType.Cube,
+            new Vector3(-halfX, size.y * 0.5f, 0f), Quaternion.identity,
+            new Vector3(wallThickness, size.y, size.z), binColor);
+        CreatePrimitiveUnder(bin.transform, "Bin_Wall_Right", PrimitiveType.Cube,
+            new Vector3(halfX, size.y * 0.5f, 0f), Quaternion.identity,
+            new Vector3(wallThickness, size.y, size.z), binColor);
+        CreatePrimitiveUnder(bin.transform, "Bin_Wall_Front", PrimitiveType.Cube,
+            new Vector3(0f, size.y * 0.5f, -halfZ), Quaternion.identity,
+            new Vector3(size.x, size.y, wallThickness), binColor);
+        CreatePrimitiveUnder(bin.transform, "Bin_Wall_Back", PrimitiveType.Cube,
+            new Vector3(0f, size.y * 0.5f, halfZ), Quaternion.identity,
+            new Vector3(size.x, size.y, wallThickness), binColor);
+
+        // Image de rôle collée au fond intérieur, face vers le haut (+Y) — visible
+        // par une caméra/un capteur regardant à travers l'ouverture du dessus.
+        // Le Quad par défaut a sa normale visible vers -Z local ; Euler(90,0,0)
+        // amène cette face -Z vers le monde +Y (face vers le haut).
+        float imageSize = Mathf.Min(roleImageSize, Mathf.Min(size.x, size.z) * 0.85f);
+        GameObject image = CreatePrimitiveUnder(bin.transform, "RoleImage", PrimitiveType.Quad,
+            new Vector3(0f, wallThickness + 0.002f, 0f),
+            Quaternion.Euler(90f, 0f, 0f),
+            new Vector3(imageSize, imageSize, 1f),
+            roleColor, roleTexture);
+        Collider imageCol = image.GetComponent<Collider>();
+        if (imageCol != null) imageCol.enabled = false;
+
+        return bin;
     }
 
     // =====================================================================

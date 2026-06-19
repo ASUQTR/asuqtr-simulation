@@ -59,6 +59,11 @@ public class Task2AvoidDebrisBuilder : MonoBehaviour
     [Tooltip("Distance entre deux ensembles consécutifs (le long de l'axe Z)")]
     public float setSpacingZ = 3.0f;
 
+    [Tooltip("Décalage latéral (X) entre ensembles consécutifs — chaque ensemble est " +
+             "décalé par rapport au précédent (zigzag), comme demandé : \"ils ont tous " +
+             "un offset\". Centré sur l'axe X=0 du Task2_AvoidDebris.")]
+    public float setLateralOffsetX = 0.5f;
+
     [Tooltip("Graine aléatoire pour poleHeightJitter, pour un résultat reproductible")]
     public int randomSeed = 2;
 
@@ -77,9 +82,13 @@ public class Task2AvoidDebrisBuilder : MonoBehaviour
             float z = setIndex * setSpacingZ;
             string setName = "Set" + (setIndex + 1);
 
-            CreatePole(setName + "_White_Left", -poleSpacingX, z, ColorWhitePVC);
-            CreatePole(setName + "_Red_Middle", 0f, z, ColorRed);
-            CreatePole(setName + "_White_Right", poleSpacingX, z, ColorWhitePVC);
+            // Décalage latéral propre à cet ensemble (zigzag centré sur X=0),
+            // pour qu'aucun des "numberOfSets" ensembles ne soit aligné avec un autre.
+            float setOffsetX = (setIndex - (numberOfSets - 1) * 0.5f) * setLateralOffsetX;
+
+            CreatePole(setName + "_White_Left", setOffsetX - poleSpacingX, z, ColorWhitePVC);
+            CreatePole(setName + "_Red_Middle", setOffsetX, z, ColorRed);
+            CreatePole(setName + "_White_Right", setOffsetX + poleSpacingX, z, ColorWhitePVC);
         }
 
         Debug.Log("[Task2AvoidDebrisBuilder] Avoid Debris (Slalom) construit — " + numberOfSets +
