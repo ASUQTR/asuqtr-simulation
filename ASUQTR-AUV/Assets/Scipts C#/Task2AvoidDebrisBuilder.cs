@@ -59,6 +59,17 @@ public class Task2AvoidDebrisBuilder : MonoBehaviour
     [Tooltip("Distance entre deux ensembles consécutifs (le long de l'axe Z)")]
     public float setSpacingZ = 3.0f;
 
+    [Tooltip("Décalage latéral (X) entre ensembles consécutifs — chaque ensemble est " +
+             "décalé par rapport au précédent (zigzag), comme demandé : \"ils ont tous " +
+             "un offset\". Centré sur l'axe X=0 du Task2_AvoidDebris.")]
+    public float setLateralOffsetX = 0.5f;
+
+    [Tooltip("Décalage de hauteur (Y) entre ensembles consécutifs, en plus du bruit " +
+             "aléatoire par tuyau (poleHeightJitter). Donne à chaque ensemble une " +
+             "hauteur d'ancrage visiblement différente (pas seulement du bruit), " +
+             "tel que demandé : \"ils ont tous un offset\".")]
+    public float setHeightOffsetY = 0.2f;
+
     [Tooltip("Graine aléatoire pour poleHeightJitter, pour un résultat reproductible")]
     public int randomSeed = 2;
 
@@ -77,9 +88,20 @@ public class Task2AvoidDebrisBuilder : MonoBehaviour
             float z = setIndex * setSpacingZ;
             string setName = "Set" + (setIndex + 1);
 
-            CreatePole(setName + "_White_Left", -poleSpacingX, z, ColorWhitePVC);
-            CreatePole(setName + "_Red_Middle", 0f, z, ColorRed);
-            CreatePole(setName + "_White_Right", poleSpacingX, z, ColorWhitePVC);
+            // Décalages propres à cet ensemble (zigzag centré sur 0), pour qu'aucun
+            // des "numberOfSets" ensembles ne soit identique à un autre — ni en X,
+            // ni en hauteur d'ancrage (Y).
+            float setCenteredIndex = setIndex - (numberOfSets - 1) * 0.5f;
+            float setOffsetX = setCenteredIndex * setLateralOffsetX;
+            float setOffsetY = setCenteredIndex * setHeightOffsetY;
+
+            // Vue de dessus (CAD officiel) : les 3 tuyaux d'un même ensemble sont
+            // alignés sur le même Z (ligne droite Blanc/Rouge/Blanc) ; c'est l'ensemble
+            // entier (toute la rangée) qui est décalé latéralement (zigzag) d'un
+            // ensemble à l'autre — pas chaque tuyau individuellement.
+            CreatePole(setName + "_White_Left", setOffsetX - poleSpacingX, z, setOffsetY, ColorWhitePVC);
+            CreatePole(setName + "_Red_Middle", setOffsetX, z, setOffsetY, ColorRed);
+            CreatePole(setName + "_White_Right", setOffsetX + poleSpacingX, z, setOffsetY, ColorWhitePVC);
         }
 
         Debug.Log("[Task2AvoidDebrisBuilder] Avoid Debris (Slalom) construit — " + numberOfSets +
@@ -108,10 +130,10 @@ public class Task2AvoidDebrisBuilder : MonoBehaviour
         }
     }
 
-    private void CreatePole(string name, float x, float z, Color color)
+    private void CreatePole(string name, float x, float z, float heightOffset, Color color)
     {
         float jitter = Random.Range(-poleHeightJitter, poleHeightJitter);
-        float bottomHeight = Mathf.Max(0f, poleBottomHeight + jitter);
+        float bottomHeight = Mathf.Max(0f, poleBottomHeight + heightOffset + jitter);
         float centerY = bottomHeight + poleLength * 0.5f;
 
         CreatePrimitive(name, new Vector3(x, centerY, z),

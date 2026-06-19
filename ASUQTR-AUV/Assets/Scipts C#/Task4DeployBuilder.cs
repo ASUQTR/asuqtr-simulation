@@ -105,9 +105,14 @@ public class Task4DeployBuilder : MonoBehaviour
             ColorBoardPlaceholder);
 
         // Face avant texturée (Quad séparé, plus simple à texturer qu'une face de Cube).
+        // Le Quad par défaut a sa normale visible vers -Z local ; sans rotation,
+        // cette face -Z pointe déjà vers l'AUV qui approche (convention -Z).
+        // L'ancienne rotation de 180° sur Y retournait l'image vers +Z (à l'intérieur
+        // du panneau), donc seule la pancarte (Board) était visible, jamais l'image —
+        // exactement le bug signalé : "on voyait la pancarte mais pas les images dessus".
         GameObject face = CreatePrimitive("Board_Front", PrimitiveType.Quad,
             new Vector3(0f, boardCenterY, -boardThickness * 0.5f - 0.001f),
-            Quaternion.Euler(0f, 180f, 0f),
+            Quaternion.identity,
             new Vector3(boardWidth, boardHeight, 1f),
             Color.white, tex);
         Collider faceCol = face.GetComponent<Collider>();

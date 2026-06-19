@@ -176,7 +176,9 @@ public static class PracticeSceneBuilder
         // ── Tâche 1 : Gate (Begin Assessment) ───────────────────────────
         // Centrée (X=0), proche de l'extrémité d'entrée (Z négatif).
         float gateX = 0f;
-        float gateZ = -LaneLength * 0.5f + 2.0f;
+        // Marge agrandie (3.0 m au lieu de 2.0 m) suite au retour d'Elliot :
+        // le Gate était trop proche du mur d'entrée du bassin.
+        float gateZ = -LaneLength * 0.5f + 3.0f;
 
         GameObject gateGO = new GameObject("Task1_Gate");
         gateGO.transform.SetParent(course.transform, worldPositionStays: false);

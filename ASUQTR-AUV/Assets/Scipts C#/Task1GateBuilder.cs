@@ -108,12 +108,12 @@ public class Task1GateBuilder : MonoBehaviour
 
         // ── Panneaux autour des montants (boîte rouge/noir) ─────────────
         // Côté DROIT : rouge en haut, noir en bas (Red, Right, Above)
-        CreatePanelBox("Panel_Right_Top", halfWidth, gateHeight * 0.75f, ColorRed);
-        CreatePanelBox("Panel_Right_Bottom", halfWidth, gateHeight * 0.25f, ColorBlack);
+        CreatePanelBox("Panel_Right_Top", halfWidth, gateHeight * 0.75f, gateHeight * 0.5f, ColorRed);
+        CreatePanelBox("Panel_Right_Bottom", halfWidth, gateHeight * 0.25f, gateHeight * 0.5f, ColorBlack);
 
         // Côté GAUCHE : noir en haut, rouge en bas
-        CreatePanelBox("Panel_Left_Top", -halfWidth, gateHeight * 0.75f, ColorBlack);
-        CreatePanelBox("Panel_Left_Bottom", -halfWidth, gateHeight * 0.25f, ColorRed);
+        CreatePanelBox("Panel_Left_Top", -halfWidth, gateHeight * 0.75f, gateHeight * 0.5f, ColorBlack);
+        CreatePanelBox("Panel_Left_Bottom", -halfWidth, gateHeight * 0.25f, gateHeight * 0.5f, ColorRed);
 
         // ── Diviseur central (plaque rouge 2 in) ────────────────────────
         // Suspendu depuis le tube supérieur, descend de dividerHeight.
@@ -126,7 +126,10 @@ public class Task1GateBuilder : MonoBehaviour
 
         // ── Images de rôle (une de chaque côté du diviseur) ─────────────
         // Placées au centre de chaque passage, face à l'AUV qui approche (-Z par convention).
-        float imageY = gateHeight * 0.5f;
+        // Tangentes au Top_Pipe : le bord supérieur de l'image touche le dessous
+        // du tube (centre du tube à gateHeight, rayon pipeDiameter*0.5).
+        float topPipeBottomY = gateHeight - pipeDiameter * 0.5f;
+        float imageY = topPipeBottomY - roleImageSize * 0.5f;
         float imageX = halfWidth * 0.5f;
 
         Texture2D repairTex = ResolveTexture(surveyRepairTexture, SurveyRepairTexturePath);
@@ -170,12 +173,12 @@ public class Task1GateBuilder : MonoBehaviour
             ColorWhitePVC);
     }
 
-    private void CreatePanelBox(string name, float x, float y, Color color)
+    private void CreatePanelBox(string name, float x, float y, float height, Color color)
     {
         CreatePrimitive(name, PrimitiveType.Cube,
             new Vector3(x, y, 0f),
             Quaternion.identity,
-            new Vector3(panelSize, gateHeight * 0.5f, panelSize),
+            new Vector3(panelSize, height, panelSize),
             color);
     }
 
@@ -183,7 +186,12 @@ public class Task1GateBuilder : MonoBehaviour
     {
         GameObject quad = CreatePrimitive(name, PrimitiveType.Quad,
             localPos,
-            Quaternion.Euler(0f, 180f, 0f), // face vers -Z (sens d'approche de l'AUV)
+            // Le Quad par défaut d'Unity a sa normale visible vers -Z en local.
+            // Sans rotation, cette face -Z pointe donc déjà vers l'AUV qui approche
+            // (convention -Z = sens d'approche). L'ancienne rotation de 180° sur Y
+            // retournait l'image à l'envers (visible seulement APRÈS le passage du
+            // portique) — c'était le bug signalé par Elliot.
+            Quaternion.identity,
             new Vector3(roleImageSize, roleImageSize, 1f),
             color,
             texture);

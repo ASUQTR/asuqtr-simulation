@@ -34,8 +34,13 @@ using UnityEditor;
 public class Task3ReconBuilder : MonoBehaviour
 {
     [Header("Pipeline (poutre porteuse PVC)")]
-    [Tooltip("Hauteur de la poutre porteuse par rapport au fond du bassin")]
+    [Tooltip("Hauteur moyenne de la poutre porteuse par rapport au fond du bassin")]
     public float pipelineHeight = 0.9f;
+
+    [Tooltip("Différence de hauteur totale entre le 1er et le dernier montant : donne à la " +
+             "poutre porteuse une pente diagonale, comme dans le CAD officiel " +
+             "(Task03_PipelineBins) où les montants ont des longueurs différentes, de 3 à 24 po).")]
+    public float pipelineSlopeRise = 0.6f;
 
     [Tooltip("Diamètre du tuyau PVC (exagéré pour visibilité)")]
     public float pipeDiameter = 0.05f;
@@ -51,7 +56,8 @@ public class Task3ReconBuilder : MonoBehaviour
     [Header("Bacs (CleverMade Milk Crate 25L, approximé)")]
     public Vector3 binSize = new Vector3(0.4f, 0.25f, 0.3f);
 
-    [Tooltip("Hauteur du bas du bac par rapport au fond du bassin")]
+    [Tooltip("Garde additionnelle entre le dessus du bras horizontal (CrossArm_X) et le " +
+             "dessous du bac — le bac repose maintenant SUR ce bras, pas directement au fond.")]
     public float binBottomHeight = 0.0f;
 
     [Header("Panneaux d'image de rôle")]
@@ -104,21 +110,56 @@ public class Task3ReconBuilder : MonoBehaviour
         float totalLength = riserSpacing * (riserCount - 1);
         float startZ = -totalLength * 0.5f;
 
-        // ── Poutre porteuse horizontale (tuyau PVC) ─────────────────────
-        CreatePrimitive("Pipeline_Beam", PrimitiveType.Cylinder,
-            new Vector3(0f, pipelineHeight, 0f),
+        // ── Poutre porteuse "en escalier" (comme le CAD officiel) ──────
+        // Ce n'est PAS une pente continue : ce sont 2 paliers HORIZONTAUX
+        // (les bacs y restent bien à plat/droits) reliés par UN SEUL coude
+        // diagonal au milieu — exactement la silhouette vue sur
+        // Task03_PipelineBins (vue de côté : plat, plat, diagonale, plat, plat).
+        float lowY = pipelineHeight - pipelineSlopeRise * 0.5f;
+        float highY = pipelineHeight + pipelineSlopeRise * 0.5f;
+        int halfCount = riserCount / 2; // 2 montants bas, 2 montants hauts
+
+        float lowSegStartZ = startZ;
+        float lowSegEndZ = startZ + (halfCount - 1) * riserSpacing;
+        float highSegStartZ = lowSegEndZ + riserSpacing;
+        float highSegEndZ = startZ + totalLength;
+
+        // Palier bas (horizontal)
+        CreatePrimitive("Pipeline_Beam_Low", PrimitiveType.Cylinder,
+            new Vector3(0f, lowY, (lowSegStartZ + lowSegEndZ) * 0.5f),
             Quaternion.Euler(90f, 0f, 0f),
-            new Vector3(pipeDiameter, totalLength * 0.5f, pipeDiameter),
+            new Vector3(pipeDiameter, (lowSegEndZ - lowSegStartZ) * 0.5f, pipeDiameter),
+            ColorPvcWhite);
+
+        // Coude diagonal central (seul segment incliné, relie les 2 paliers)
+        Vector3 diagStart = new Vector3(0f, lowY, lowSegEndZ);
+        Vector3 diagEnd = new Vector3(0f, highY, highSegStartZ);
+        Vector3 diagDir = diagEnd - diagStart;
+        float diagLength = diagDir.magnitude;
+        Quaternion diagRot = Quaternion.FromToRotation(Vector3.up, diagDir.normalized);
+
+        CreatePrimitive("Pipeline_Beam_Diagonal", PrimitiveType.Cylinder,
+            (diagStart + diagEnd) * 0.5f,
+            diagRot,
+            new Vector3(pipeDiameter, diagLength * 0.5f, pipeDiameter),
+            ColorPvcWhite);
+
+        // Palier haut (horizontal)
+        CreatePrimitive("Pipeline_Beam_High", PrimitiveType.Cylinder,
+            new Vector3(0f, highY, (highSegStartZ + highSegEndZ) * 0.5f),
+            Quaternion.Euler(90f, 0f, 0f),
+            new Vector3(pipeDiameter, (highSegEndZ - highSegStartZ) * 0.5f, pipeDiameter),
             ColorPvcWhite);
 
         for (int i = 0; i < riserCount; i++)
         {
             float z = startZ + i * riserSpacing;
+            float riserHeight = (i < halfCount) ? lowY : highY;
             bool isFireRole = RiserIsFireRole[i];
             float side = (i % 2 == 0) ? sideOffset : -sideOffset;
             string riserName = "Riser" + (i + 1) + (isFireRole ? "_SurveyRepair" : "_SearchRescue");
 
-            BuildRiser(riserName, z, side, isFireRole, isFireRole ? fireTex : bloodTex);
+            BuildRiser(riserName, z, side, riserHeight, isFireRole, isFireRole ? fireTex : bloodTex);
         }
 
         Debug.Log("[Task3ReconBuilder] Recon (Bins) construit — 4 montants (2 Survey&Repair / " +
@@ -134,7 +175,7 @@ public class Task3ReconBuilder : MonoBehaviour
     //  CONSTRUCTION D'UN MONTANT (pipe vertical + bac + panneau + lumière + détecteur)
     // =====================================================================
 
-    private void BuildRiser(string name, float z, float sideX, bool isFireRole, Texture2D roleTexture)
+    private void BuildRiser(string name, float z, float sideX, float riserHeight, bool isFireRole, Texture2D roleTexture)
     {
         GameObject riser = new GameObject(name);
         riser.transform.SetParent(transform, worldPositionStays: false);
@@ -144,35 +185,39 @@ public class Task3ReconBuilder : MonoBehaviour
         Undo.RegisterCreatedObjectUndo(riser, "Create " + name);
 #endif
 
-        // Montant vertical (tuyau PVC), du fond jusqu'à la poutre porteuse.
+        // Montant vertical (tuyau PVC), du fond jusqu'à la poutre porteuse — sa
+        // hauteur varie d'un montant à l'autre puisque la poutre est en pente.
         CreatePrimitiveUnder(riser.transform, "Riser_Pipe", PrimitiveType.Cylinder,
-            new Vector3(0f, pipelineHeight * 0.5f, 0f),
+            new Vector3(0f, riserHeight * 0.5f, 0f),
             Quaternion.identity,
-            new Vector3(pipeDiameter, pipelineHeight * 0.5f, pipeDiameter),
+            new Vector3(pipeDiameter, riserHeight * 0.5f, pipeDiameter),
             ColorPvcWhite);
 
-        // Bac (bin), posé sur le fond, décalé latéralement.
-        float binCenterY = binBottomHeight + binSize.y * 0.5f;
-        CreatePrimitiveUnder(riser.transform, "Bin", PrimitiveType.Cube,
-            new Vector3(sideX, binCenterY, 0f),
-            Quaternion.identity,
-            binSize,
-            ColorBin);
+        // Bras horizontal (tuyau PVC sens X) à chaque intersection : part du
+        // montant (X=0) jusqu'à la position latérale du bac (X=sideX), à la
+        // hauteur de la poutre porteuse — exactement comme sur le CAD, où un
+        // tuyau dans le sens X part de chaque intersection pour supporter le bac.
+        CreatePrimitiveUnder(riser.transform, "CrossArm_X", PrimitiveType.Cylinder,
+            new Vector3(sideX * 0.5f, riserHeight, 0f),
+            Quaternion.Euler(0f, 0f, 90f),
+            new Vector3(pipeDiameter, Mathf.Abs(sideX) * 0.5f, pipeDiameter),
+            ColorPvcWhite);
 
-        // Panneau d'image de rôle, fixé sur le montant à mi-hauteur, face au bac.
+        // Bac (bin) ouvert sur le dessus, posé SUR le bras horizontal (CrossArm_X),
+        // décalé latéralement. L'image de rôle est collée au fond intérieur du bac
+        // (plutôt que sur un panneau séparé sur le montant) : suite au retour
+        // d'Elliot, "mettre les images dans les carrés [bacs] et faire qu'une de
+        // ses faces soit ouverte". L'ancien panneau séparé utilisait en plus une
+        // rotation (LookRotation) qui faisait pointer la face visible du Quad à
+        // l'opposé du bac — d'où le signalement "objets mal liés".
         Color placeholderColor = isFireRole ? ColorFireRole : ColorBloodRole;
-        GameObject panel = CreatePrimitiveUnder(riser.transform, "RoleImage", PrimitiveType.Quad,
-            new Vector3(0f, pipelineHeight * 0.7f, 0f),
-            Quaternion.LookRotation(new Vector3(sideX, 0f, 0f)),
-            new Vector3(roleImageSize, roleImageSize, 1f),
-            placeholderColor,
-            roleTexture);
-        Collider panelCol = panel.GetComponent<Collider>();
-        if (panelCol != null) panelCol.enabled = false;
+        float binSupportY = riserHeight + pipeDiameter * 0.5f + binBottomHeight;
+        CreateOpenTopBin(riser.transform, "Bin", new Vector3(sideX, binSupportY, 0f),
+            binSize, ColorBin, roleTexture, placeholderColor);
 
         // Lumière (placeholder sphère) — état initial allumé selon le texte officiel.
         GameObject light = CreatePrimitiveUnder(riser.transform, "Light", PrimitiveType.Sphere,
-            new Vector3(sideX * 0.5f, pipelineHeight * 0.9f, 0f),
+            new Vector3(sideX * 0.5f, riserHeight * 0.9f, 0f),
             Quaternion.identity,
             new Vector3(lightRadius, lightRadius, lightRadius),
             lightInitiallyOn ? ColorLightOn : ColorLightOff);
@@ -182,7 +227,7 @@ public class Task3ReconBuilder : MonoBehaviour
         // Light") : portée de détection courte (quelques cm), simulée ici par
         // MagneticLightUnit à distance plutôt que par un vrai champ magnétique.
         GameObject detector = CreatePrimitiveUnder(riser.transform, "MagneticDetector", PrimitiveType.Sphere,
-            new Vector3(sideX * 0.5f, pipelineHeight * 0.55f, 0f),
+            new Vector3(sideX * 0.5f, riserHeight * 0.55f, 0f),
             Quaternion.identity,
             new Vector3(detectorRadius, detectorRadius, detectorRadius),
             ColorDetector);
@@ -194,6 +239,61 @@ public class Task3ReconBuilder : MonoBehaviour
         lightUnit.detectorTransform = detector.transform;
         lightUnit.startLightOn = lightInitiallyOn;
         lightUnit.activationDistance = magnetActivationDistance;
+    }
+
+    // =====================================================================
+    //  BAC OUVERT (5 faces : fond + 4 parois, dessus ouvert) AVEC IMAGE DE
+    //  RÔLE COLLÉE AU FOND INTÉRIEUR, VISIBLE À TRAVERS L'OUVERTURE DU HAUT.
+    // =====================================================================
+
+    private GameObject CreateOpenTopBin(Transform parent, string name, Vector3 localPos,
+        Vector3 size, Color binColor, Texture2D roleTexture, Color roleColor)
+    {
+        GameObject bin = new GameObject(name);
+        bin.transform.SetParent(parent, worldPositionStays: false);
+        bin.transform.localPosition = localPos;
+
+#if UNITY_EDITOR
+        Undo.RegisterCreatedObjectUndo(bin, "Create " + name);
+#endif
+
+        const float wallThickness = 0.015f;
+        float halfX = size.x * 0.5f;
+        float halfZ = size.z * 0.5f;
+
+        // Fond du bac.
+        CreatePrimitiveUnder(bin.transform, "Bin_Bottom", PrimitiveType.Cube,
+            new Vector3(0f, wallThickness * 0.5f, 0f), Quaternion.identity,
+            new Vector3(size.x, wallThickness, size.z), binColor);
+
+        // 4 parois latérales — pas de face du dessus : le bac reste ouvert.
+        CreatePrimitiveUnder(bin.transform, "Bin_Wall_Left", PrimitiveType.Cube,
+            new Vector3(-halfX, size.y * 0.5f, 0f), Quaternion.identity,
+            new Vector3(wallThickness, size.y, size.z), binColor);
+        CreatePrimitiveUnder(bin.transform, "Bin_Wall_Right", PrimitiveType.Cube,
+            new Vector3(halfX, size.y * 0.5f, 0f), Quaternion.identity,
+            new Vector3(wallThickness, size.y, size.z), binColor);
+        CreatePrimitiveUnder(bin.transform, "Bin_Wall_Front", PrimitiveType.Cube,
+            new Vector3(0f, size.y * 0.5f, -halfZ), Quaternion.identity,
+            new Vector3(size.x, size.y, wallThickness), binColor);
+        CreatePrimitiveUnder(bin.transform, "Bin_Wall_Back", PrimitiveType.Cube,
+            new Vector3(0f, size.y * 0.5f, halfZ), Quaternion.identity,
+            new Vector3(size.x, size.y, wallThickness), binColor);
+
+        // Image de rôle collée au fond intérieur, face vers le haut (+Y) — visible
+        // par une caméra/un capteur regardant à travers l'ouverture du dessus.
+        // Le Quad par défaut a sa normale visible vers -Z local ; Euler(90,0,0)
+        // amène cette face -Z vers le monde +Y (face vers le haut).
+        float imageSize = Mathf.Min(roleImageSize, Mathf.Min(size.x, size.z) * 0.85f);
+        GameObject image = CreatePrimitiveUnder(bin.transform, "RoleImage", PrimitiveType.Quad,
+            new Vector3(0f, wallThickness + 0.002f, 0f),
+            Quaternion.Euler(90f, 0f, 0f),
+            new Vector3(imageSize, imageSize, 1f),
+            roleColor, roleTexture);
+        Collider imageCol = image.GetComponent<Collider>();
+        if (imageCol != null) imageCol.enabled = false;
+
+        return bin;
     }
 
     // =====================================================================
