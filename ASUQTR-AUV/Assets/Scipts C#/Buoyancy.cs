@@ -45,7 +45,7 @@ public class Buoyancy : MonoBehaviour
     [SerializeField] private Vector3 localCenterOfGravity = Vector3.zero;
 
     [Tooltip("Center of buoyancy in local coordinates (m). Slightly above CG for passive roll/pitch stability.")]
-    [SerializeField] private Vector3 localCenterOfBuoyancy = new Vector3(0f, 0.02f, 0f);
+    [SerializeField] private Vector3 localCenterOfBuoyancy = new Vector3(0f, 0.05f, 0f);
 
     [Header("Buoyancy Tuning")]
     [Tooltip("Automatically choose buoyancyScale from Rigidbody mass and displacedVolume at startup.")]
