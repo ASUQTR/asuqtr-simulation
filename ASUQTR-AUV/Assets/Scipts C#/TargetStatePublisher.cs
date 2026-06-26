@@ -3,8 +3,8 @@ using UnityEngine;
 
 
 /// <summary>
-/// Publie la position de la cible et (optionnellement) un yaw de pointage vers elle
-/// sur les topics ROS utilisés par le node de contrôle.
+/// Publie la cible sous forme de geometry_msgs/PoseStamped sur le topic écouté par
+/// control_node en mode lqr_tuning.
 ///
 /// Notes d'intégration Unity → ROS (convention NED pour ce projet) :
 /// - Ce composant réalise la conversion des coordonnées Unity (Unity: X=droite, Y=haut, Z=avant)
@@ -17,10 +17,8 @@ using UnityEngine;
 ///   (IMU, nav, target, etc.). Si la convention change, modifiez uniquement la fonction
 ///   UnityPositionToNED() afin d'éviter des incohérences difficiles à déboguer.
 ///
-/// - Angles : les angles d'Euler sont ambigus (ordre de rotation). Ce script ne publie
-///   que le yaw (cap) calculé pour pointer vers la cible. Pour publier une attitude complète,
-///   préférez convertir les quaternions Unity → NED via une utilité centrale et publier
-///   le quaternion côté ROS/geometry_msgs/Quaternion.
+/// - IMPORTANT : côté control_node, pose.orientation.x/y/z sont interprétés comme
+///   Roll/Pitch/Yaw en degrés, pas comme un quaternion ROS standard.
 /// </summary>
 public class TargetStatePublisher : MonoBehaviour
 {
@@ -28,11 +26,12 @@ public class TargetStatePublisher : MonoBehaviour
     public Transform targetObject;
 
     [Header("ROS Settings")]
-    public string positionTopic = "/control/abs_ned_pos_target";
-    public string angleTopic = "/control/abs_angle_target";
+    public string positionTopic = "/debug/target_pose";
+    public string frameId = "odom";
     public float publishRateHz = 10f;
 
     [Header("Origin (optional)")]
+    [Tooltip("Si vrai, publie la cible relative à la position initiale du sous-marin.")]
     public bool useRelativeOrigin = true;
     private Vector3 originNED;
     private bool originCaptured = false;
@@ -55,6 +54,10 @@ public class TargetStatePublisher : MonoBehaviour
         if (submarineTransform == null)
             submarineTransform = GameObject.FindWithTag("Player")?.transform;
 
+        // Migration douce pour les scenes qui avaient encore les anciens topics.
+        if (positionTopic.StartsWith("/control/"))
+            positionTopic = "/debug/target_pose";
+
         if (useRelativeOrigin)
             CaptureOrigin();
     }
@@ -73,8 +76,10 @@ public class TargetStatePublisher : MonoBehaviour
     {
         if (targetObject == null) return;
 
-        // Capturer l'origine en NED en utilisant la conversion centralisée
-        originNED = UnityPositionToNED(targetObject.position);
+        // Utiliser la même origine que l'odométrie du sous-marin.
+        // Ainsi, target_state - current_state reste dans un repère cohérent côté control_node.
+        Transform originTransform = submarineTransform != null ? submarineTransform : targetObject;
+        originNED = UnityPositionToNED(originTransform.position);
         originCaptured = true;
         Debug.Log($"[TargetStatePublisher] Origin (NED) captured: {originNED}");
     }
@@ -98,13 +103,10 @@ public class TargetStatePublisher : MonoBehaviour
             return;
 
         timer = 0f;
-        PublishTargetPosition();
-
-        if (pointCameraAtTarget && submarineTransform != null)
-            PublishTargetOrientation();
+        PublishTargetPose();
     }
 
-    void PublishTargetPosition()
+    void PublishTargetPose()
     {
         // Conversion Unity -> NED via l'utilitaire central
         Vector3 ned = UnityPositionToNED(targetObject.position);
@@ -124,20 +126,35 @@ public class TargetStatePublisher : MonoBehaviour
             dz = z_ned - originNED.z;
         }
 
-        // Construction du message JSON pour rosbridge (équivalent geometry_msgs/Point)
+        float yawDeg = 0f;
+        if (pointCameraAtTarget && submarineTransform != null)
+            yawDeg = ComputeTargetYawDeg();
+
+        // control_node/debug_target_callback lit orientation.x/y/z comme Euler NED en degres.
         string msg =
             "{\"op\":\"publish\"," +
-             "\"topic\":\"" + positionTopic + "\"," +
-             "\"msg\":{" +
-               "\"x\":" + dx.ToString("F6", CultureInfo.InvariantCulture) + "," +
-               "\"y\":" + dy.ToString("F6", CultureInfo.InvariantCulture) + "," +
-               "\"z\":" + dz.ToString("F6", CultureInfo.InvariantCulture) +
-             "}}";
+	         "\"topic\":\"" + positionTopic + "\"," +
+	         "\"msg\":{" +
+               "\"header\":{\"frame_id\":\"" + frameId + "\"}," +
+               "\"pose\":{" +
+                 "\"position\":{" +
+	               "\"x\":" + dx.ToString("F6", CultureInfo.InvariantCulture) + "," +
+	               "\"y\":" + dy.ToString("F6", CultureInfo.InvariantCulture) + "," +
+	               "\"z\":" + dz.ToString("F6", CultureInfo.InvariantCulture) +
+                 "}," +
+                 "\"orientation\":{" +
+                   "\"x\":0.0," +
+                   "\"y\":0.0," +
+                   "\"z\":" + yawDeg.ToString("F6", CultureInfo.InvariantCulture) + "," +
+                   "\"w\":1.0" +
+                 "}" +
+               "}" +
+	         "}}";
 
         SimpleRosSocket.Instance.Send(msg);
     }
 
-    void PublishTargetOrientation()
+    float ComputeTargetYawDeg()
     {
         // Vecteur Unity du sous-marin vers la cible
         Vector3 directionUnity = targetObject.position - submarineTransform.position;
@@ -145,22 +162,8 @@ public class TargetStatePublisher : MonoBehaviour
         // Conversion du vecteur direction en NED (on traite le vecteur comme une position relative)
         Vector3 directionNED = UnityPositionToNED(directionUnity);
 
-        // Calcul du yaw en NED : atan2(east, north) -> atan2(y_ned, x_ned)
-        // Résultat en radians. Interprétation : angle mesuré depuis l'axe nord (X_ned).
+        // Calcul du yaw en NED : atan2(east, north) -> atan2(y_ned, x_ned).
         float yaw = Mathf.Atan2(directionNED.y, directionNED.x);
-
-        // Nous publions NaN pour roll/pitch pour indiquer qu'ils sont non fournis / non modifiés.
-        // Si le node de contrôle exige des valeurs numériques, remplacer NaN par les valeurs voulues,
-        // mais la solution robuste reste de publier un quaternion d'attitude converti Unity->NED.
-        string msg =
-            "{\"op\":\"publish\"," +
-             "\"topic\":\"" + angleTopic + "\"," +
-             "\"msg\":{" +
-               "\"x\":" + float.NaN.ToString(CultureInfo.InvariantCulture) + "," +
-               "\"y\":" + float.NaN.ToString(CultureInfo.InvariantCulture) + "," +
-               "\"z\":" + yaw.ToString("F6", CultureInfo.InvariantCulture) +
-             "}}";
-
-        SimpleRosSocket.Instance.Send(msg);
+        return yaw * Mathf.Rad2Deg;
     }
 }
