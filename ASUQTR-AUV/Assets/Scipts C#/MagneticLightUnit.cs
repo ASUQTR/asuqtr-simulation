@@ -54,7 +54,7 @@ public class MagneticLightUnit : MonoBehaviour
 
         if (magnetSource == null)
         {
-            Buoyancy auv = FindObjectOfType<Buoyancy>();
+            Buoyancy auv = FindAnyObjectByType<Buoyancy>();
             if (auv != null) magnetSource = auv.transform;
         }
 

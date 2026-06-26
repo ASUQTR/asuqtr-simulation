@@ -66,7 +66,7 @@ public class UnityCompressedCameraPublisher : MonoBehaviour
         if (topicAdvertised)
             return;
 
-        socket.AdvertiseTopic(topic, "sensor_msgs/CompressedImage");
+        socket.Advertise(topic, "sensor_msgs/CompressedImage");
         topicAdvertised = true;
     }
 
