@@ -135,9 +135,7 @@ public class UnityCompressedCameraPublisher : MonoBehaviour
             byte[] jpegData = captureTexture.EncodeToJPG(Mathf.Clamp(jpegQuality, 1, 100));
             string base64Data = Convert.ToBase64String(jpegData);
 
-            double now = Time.timeAsDouble;
-            uint sec = (uint)now;
-            uint nanosec = (uint)((now - sec) * 1e9);
+            RosTime.Now(out uint sec, out uint nanosec);
 
             string message =
                 "{\"op\":\"publish\"," +

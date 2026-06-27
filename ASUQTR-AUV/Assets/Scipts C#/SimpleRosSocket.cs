@@ -65,6 +65,7 @@ public class SimpleRosSocket : MonoBehaviour
     private float nextThrusterSubscribeRetryTime = 0f;
     private int thrusterSubscribeAttempts = 0;
     private bool thrusterMessageReceived = false;
+    private bool cleanupStarted = false;
 
     /// <summary>
     /// Evénement invoqué pour chaque message JSON brut reçu depuis rosbridge.
@@ -240,14 +241,40 @@ public class SimpleRosSocket : MonoBehaviour
             ws.SendText(json);
     }
 
+    async void OnApplicationQuit()
+    {
+        await CleanupSocket();
+    }
+
     /// <summary>
     /// Fermeture propre du socket à la destruction du composant.
     /// </summary>
     async void OnDestroy()
     {
-        if (ws != null && ws.State == WebSocketState.Open)
+        await CleanupSocket();
+    }
+
+    async System.Threading.Tasks.Task CleanupSocket()
+    {
+        if (cleanupStarted)
+            return;
+
+        cleanupStarted = true;
+
+        WebSocket socketToClose = ws;
+        ws = null;
+        advertisedTopics.Clear();
+        pendingAdvertisements.Clear();
+        OnRawMessage = null;
+        thrusterSubscribeAttempts = 0;
+        thrusterMessageReceived = false;
+
+        if (Instance == this)
+            Instance = null;
+
+        if (socketToClose != null && socketToClose.State == WebSocketState.Open)
         {
-            await ws.Close();
+            await socketToClose.Close();
         }
     }
 }

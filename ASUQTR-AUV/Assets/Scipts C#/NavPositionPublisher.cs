@@ -238,9 +238,7 @@ public class NavPositionPublisher : MonoBehaviour
         float angularY = -angularLocalUnity.x;
         float angularZ = angularLocalUnity.y;
 
-        double now = Time.timeAsDouble;
-        uint secs = (uint)now;
-        uint nsecs = (uint)((now - secs) * 1e9);
+        RosTime.Now(out uint secs, out uint nsecs);
 
         string poseCovariance = "[0.0025,0,0,0,0,0,0,0.0025,0,0,0,0,0,0,0.0025,0,0,0,0,0,0,0.01,0,0,0,0,0,0,0.01,0,0,0,0,0,0,0.01]";
         string twistCovariance = "[0.01,0,0,0,0,0,0,0.01,0,0,0,0,0,0,0.01,0,0,0,0,0,0,0.02,0,0,0,0,0,0,0.02,0,0,0,0,0,0,0.02]";

@@ -79,9 +79,7 @@ public class NavVelocityPublisher : MonoBehaviour
         float v = vBodyUnity.x;    // droite / right
         float w = -vBodyUnity.y;   // bas / down
 
-        double now = Time.realtimeSinceStartupAsDouble;
-        uint secs = (uint)now;
-        uint nsecs = (uint)((now - secs) * 1e9);
+        RosTime.Now(out uint secs, out uint nsecs);
 
         // Message rosbridge JSON (équivalent minimal à un twist.linear ou geometry_msgs/Point)
         string msg =

@@ -202,9 +202,7 @@ public class NavImuPublisher : MonoBehaviour
         float az = accImu.y;
 
         // Timestamp
-        double now = Time.timeAsDouble;
-        uint secs = (uint)now;
-        uint nsecs = (uint)((now - secs) * 1e9);
+        RosTime.Now(out uint secs, out uint nsecs);
 
         // Covariances (valeurs par défaut, ajustables selon bruit/simu)
         string orientation_cov = "[0.0001,0,0,0,0.0001,0,0,0,0.0001]";
